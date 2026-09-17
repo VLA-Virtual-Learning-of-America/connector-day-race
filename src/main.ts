@@ -22,7 +22,7 @@ app.innerHTML = `
 
   <section id="screen-draw" class="screen">
     <h1>Dibujá tu criatura</h1>
-    <p class="subtitle">Usá el dedo o el mouse. Cuanto más rara, más divertida la carrera.</p>
+    <p class="subtitle">Dibujá el cuerpo, soltá y agregá patas en trazos separados. ¡Esas patas se moverán al correr!</p>
     <canvas id="draw-canvas" width="480" height="360"></canvas>
     <div class="toolbar">
       <button id="btn-clear">Borrar</button>

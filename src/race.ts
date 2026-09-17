@@ -36,6 +36,16 @@ interface Racer {
   sprite?: HTMLCanvasElement;
   spriteW?: number;
   spriteH?: number;
+  spriteX?: number;
+  spriteY?: number;
+  legs?: {
+    sprite: HTMLCanvasElement;
+    pivotX: number;
+    pivotY: number;
+    imageX: number;
+    imageY: number;
+    phaseOffset: number;
+  }[];
   positions: number[]; // recorded/replay x offsets from START_X, sampled every SAMPLE_MS
   finished: boolean;
   finishTimeMs?: number;
@@ -101,7 +111,38 @@ export class Race {
   }
 
   addPlayer(draw: DrawResult, flag: FlagOptions) {
-    const hull = Vertices.hull(draw.points as unknown as Matter.Vertex[]);
+    const bodyStroke = draw.strokes.reduce((largest, stroke) =>
+      stroke.area > largest.area ? stroke : largest,
+    );
+    const hull = Vertices.hull(bodyStroke.points as unknown as Matter.Vertex[]);
+    const center = Vertices.centre(hull);
+    // All crops and pivots share drawing coordinates; Matter recenters the hull
+    // at its centroid, so subtract that same origin from every visual part.
+    let left = Infinity, right = -Infinity, bottom = -Infinity;
+    for (const point of bodyStroke.points) {
+      left = Math.min(left, point.x);
+      right = Math.max(right, point.x);
+      bottom = Math.max(bottom, point.y);
+    }
+    const legs = draw.strokes.filter((stroke) => stroke !== bodyStroke).map((stroke, i) => {
+      let pivot = stroke.points[0];
+      let nearest = Infinity;
+      for (const point of stroke.points) {
+        const dx = point.x - Math.max(left, Math.min(right, point.x));
+        const dy = point.y - bottom;
+        const distance = dx * dx + dy * dy;
+        if (distance < nearest) {
+          nearest = distance;
+          pivot = point;
+        }
+      }
+      return {
+        sprite: stroke.sprite,
+        pivotX: pivot.x - center.x, pivotY: pivot.y - center.y,
+        imageX: stroke.x - pivot.x, imageY: stroke.y - pivot.y,
+        phaseOffset: i * Math.PI / 2,
+      };
+    });
     const body = Bodies.fromVertices(
       START_X,
       GROUND_Y - draw.height / 2,
@@ -139,9 +180,12 @@ export class Race {
       kind: "player",
       label: "Vos",
       color: "#ff5a36",
-      sprite: draw.sprite,
+      sprite: legs.length ? bodyStroke.sprite : draw.sprite,
       spriteW: draw.width,
       spriteH: draw.height,
+      spriteX: (legs.length ? bodyStroke.x : 0) - center.x,
+      spriteY: (legs.length ? bodyStroke.y : 0) - center.y,
+      legs,
       positions: [],
       finished: false,
     };
@@ -318,10 +362,21 @@ export class Race {
     ctx.translate(body.position.x, body.position.y);
     ctx.rotate(body.angle);
     if (r.sprite && r.spriteW && r.spriteH) {
-      ctx.drawImage(r.sprite, -r.spriteW / 2, -r.spriteH / 2, r.spriteW, r.spriteH);
+      ctx.drawImage(r.sprite, r.spriteX!, r.spriteY!);
       const stride = Math.min(1, Math.max(0, Math.abs(body.velocity.x) - 0.1) / 4);
-      // The cropped sprite has a white background: draw legs over its lower edge.
-      this.drawLegs(r.spriteW, r.spriteH, this.legPhase, stride, "#12151a");
+      if (r.legs?.length) {
+        for (let i = 0; i < r.legs.length; i++) {
+          const leg = r.legs[i];
+          const angle = Math.sin(this.legPhase + leg.phaseOffset) * 0.7 * stride;
+          ctx.save();
+          ctx.translate(leg.pivotX, leg.pivotY);
+          ctx.rotate(angle);
+          ctx.drawImage(leg.sprite, leg.imageX, leg.imageY);
+          ctx.restore();
+        }
+      } else {
+        this.drawLegs(r.spriteW, r.spriteH, this.legPhase, stride, "#12151a");
+      }
     }
     ctx.restore();
 

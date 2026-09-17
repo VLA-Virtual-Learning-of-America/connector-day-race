@@ -1,15 +1,51 @@
+type Point = { x: number; y: number };
+
+export interface DrawStroke {
+  points: Point[]; // relative to the complete drawing's bounding box
+  sprite: HTMLCanvasElement; // only this stroke, on transparent pixels
+  x: number; // crop origin in the same coordinates as points
+  y: number;
+  width: number;
+  height: number;
+  area: number; // bounding-box area before padding
+}
+
 export interface DrawResult {
   points: { x: number; y: number }[];
   sprite: HTMLCanvasElement; // the raw drawing, cropped to its bounding box
   width: number;
   height: number;
+  strokes: DrawStroke[];
+}
+
+function bounds(points: Point[]) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function paintStroke(ctx: CanvasRenderingContext2D, points: Point[], x = 0, y = 0) {
+  ctx.strokeStyle = "#12151a";
+  ctx.lineWidth = 8;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(points[0].x - x, points[0].y - y);
+  for (const p of points) ctx.lineTo(p.x - x, p.y - y);
+  ctx.stroke();
 }
 
 export class DrawPad {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private drawing = false;
-  private strokes: { x: number; y: number }[] = [];
+  private strokes: Point[][] = [];
+  private activePointer: number | null = null;
   private last: { x: number; y: number } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -23,6 +59,8 @@ export class DrawPad {
 
   reset() {
     this.strokes = [];
+    this.drawing = false;
+    this.activePointer = null;
     this.last = null;
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.fillStyle = "#ffffff";
@@ -34,7 +72,7 @@ export class DrawPad {
   }
 
   hasEnoughInk(): boolean {
-    return this.strokes.length >= 8;
+    return this.strokes.reduce((total, stroke) => total + stroke.length, 0) >= 8;
   }
 
   private toLocal(clientX: number, clientY: number) {
@@ -48,7 +86,8 @@ export class DrawPad {
     const start = (x: number, y: number) => {
       this.drawing = true;
       this.last = { x, y };
-      this.strokes.push({ x, y });
+      this.strokes.push([{ x, y }]);
+      paintStroke(this.ctx, this.strokes[this.strokes.length - 1]);
     };
     const move = (x: number, y: number) => {
       if (!this.drawing || !this.last) return;
@@ -57,19 +96,24 @@ export class DrawPad {
       this.ctx.lineTo(x, y);
       this.ctx.stroke();
       this.last = { x, y };
-      this.strokes.push({ x, y });
+      this.strokes[this.strokes.length - 1].push({ x, y });
     };
-    const end = () => {
+    const end = (e: PointerEvent) => {
+      if (e.pointerId !== this.activePointer) return;
       this.drawing = false;
       this.last = null;
+      this.activePointer = null;
     };
 
     this.canvas.addEventListener("pointerdown", (e) => {
+      if (this.activePointer !== null) return;
+      this.activePointer = e.pointerId;
       this.canvas.setPointerCapture(e.pointerId);
       const p = this.toLocal(e.clientX, e.clientY);
       start(p.x, p.y);
     });
     this.canvas.addEventListener("pointermove", (e) => {
+      if (e.pointerId !== this.activePointer) return;
       const p = this.toLocal(e.clientX, e.clientY);
       move(p.x, p.y);
     });
@@ -93,22 +137,26 @@ export class DrawPad {
       { x: cx - 100, y: cy + 35 },
       { x: cx - 110, y: cy - 10 },
     ];
-    this.ctx.beginPath();
-    this.ctx.moveTo(body[0].x, body[0].y);
-    for (const p of body.slice(1)) this.ctx.lineTo(p.x, p.y);
-    this.ctx.stroke();
-    this.strokes = body;
+    this.strokes = [body];
+    for (let i = 0; i < 3; i++) {
+      const x = cx - 65 + i * 65;
+      const y = cy + (i === 1 ? 62 : 50);
+      this.strokes.push([
+        { x, y }, { x: x - 8, y: y + 18 },
+        { x: x + 4, y: y + 35 }, { x: x + 20, y: y + 35 },
+      ]);
+    }
+    for (const stroke of this.strokes) paintStroke(this.ctx, stroke);
   }
 
   extract(): DrawResult {
-    const xs = this.strokes.map((p) => p.x);
-    const ys = this.strokes.map((p) => p.y);
-    const minX = Math.min(...xs) - 10;
-    const maxX = Math.max(...xs) + 10;
-    const minY = Math.min(...ys) - 10;
-    const maxY = Math.max(...ys) + 10;
-    const width = Math.max(40, maxX - minX);
-    const height = Math.max(40, maxY - minY);
+    const allPoints = this.strokes.flat();
+    if (!allPoints.length) throw new Error("Cannot extract an empty drawing");
+    const box = bounds(allPoints);
+    const minX = Math.floor(box.minX) - 10;
+    const minY = Math.floor(box.minY) - 10;
+    const width = Math.max(40, Math.ceil(box.maxX) + 10 - minX);
+    const height = Math.max(40, Math.ceil(box.maxY) + 10 - minY);
 
     const sprite = document.createElement("canvas");
     sprite.width = width;
@@ -116,7 +164,23 @@ export class DrawPad {
     const sctx = sprite.getContext("2d")!;
     sctx.drawImage(this.canvas, minX, minY, width, height, 0, 0, width, height);
 
-    const points = this.strokes.map((p) => ({ x: p.x - minX, y: p.y - minY }));
-    return { points, sprite, width, height };
+    const points = allPoints.map((p) => ({ x: p.x - minX, y: p.y - minY }));
+    const strokes = this.strokes.map((stroke): DrawStroke => {
+      const b = bounds(stroke);
+      const x = Math.floor(b.minX) - 10;
+      const y = Math.floor(b.minY) - 10;
+      const crop = document.createElement("canvas");
+      crop.width = Math.ceil(b.maxX) + 10 - x;
+      crop.height = Math.ceil(b.maxY) + 10 - y;
+      // Repaint in isolation: copying from the pad would include intersecting strokes.
+      paintStroke(crop.getContext("2d")!, stroke, x, y);
+      return {
+        points: stroke.map((p) => ({ x: p.x - minX, y: p.y - minY })),
+        sprite: crop, x: x - minX, y: y - minY,
+        width: crop.width, height: crop.height,
+        area: (b.maxX - b.minX) * (b.maxY - b.minY),
+      };
+    });
+    return { points, sprite, width, height, strokes };
   }
 }
