@@ -148,7 +148,7 @@ input[type="text"], input[type="tel"] {
 
 .hud span.label { opacity: 0.6; font-weight: 500; margin-right: 4px; }
 
-#cheer-btn {
+#cheer-btn, .event-cheer-btn {
   width: 160px;
   height: 160px;
   border-radius: 50%;

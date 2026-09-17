@@ -51,7 +51,11 @@ export async function mountHost() {
     catch (e) { status.textContent = String(e); }
     finally { reset.disabled = false; }
   };
-  function receive(message: Lobby) {
+  function receive(message: Lobby | { type: 'cheer'; id: string }) {
+    if (message.type === 'cheer') {
+      if (racing) race?.cheerEntrant(message.id);
+      return;
+    }
     if (message.type === 'start') {
       if (racing) return;
       racing = true;
@@ -76,7 +80,7 @@ export async function mountHost() {
           reset.hidden = false;
         },
       });
-      for (const entrant of message.racers) race.addEntrant(restoreDrawing(entrant.strokes), entrant.name, entrant.sticker);
+      for (const entrant of message.racers) race.addEntrant(restoreDrawing(entrant.strokes), entrant.name, entrant.sticker, entrant.id);
       race.start();
       return;
     }

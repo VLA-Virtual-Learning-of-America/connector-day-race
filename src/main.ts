@@ -171,11 +171,28 @@ document.getElementById("btn-sticker-go")!.addEventListener("click", async () =>
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
+      const entrantId: string = data.id;
       show("name");
       screens.name.replaceChildren();
       const title = document.createElement("h1");
       title.textContent = "Ya sos parte de la carrera — mirá la pantalla grande";
-      screens.name.append(title);
+      const cheerButton = document.createElement("button");
+      cheerButton.className = "primary event-cheer-btn";
+      cheerButton.textContent = "¡Dale!";
+      let lastCheerSentAt = -Infinity;
+      cheerButton.addEventListener("pointerdown", () => {
+        const now = performance.now();
+        if (now - lastCheerSentAt < 140) return;
+        lastCheerSentAt = now;
+        void fetch("/api/cheer", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: entrantId }),
+        }).catch(() => {});
+      });
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent = "Tu criatura corre sola. Tocá ¡Dale! para darle un empujón extra. Sin señal, sigue corriendo igual.";
+      screens.name.append(title, cheerButton, hint);
     } catch (error) {
       alert(error instanceof Error ? error.message : "No se pudo enviar. Revisá la conexión e intentá otra vez.");
       button.disabled = false;

@@ -50,6 +50,7 @@ export interface RaceCallbacks {
 }
 
 interface Racer {
+  id?: string;
   perk?: Perk;
   sticker?: StickerCode;
   cheered?: boolean;
@@ -157,9 +158,10 @@ export class Race {
     this.player = this.createRacer(draw, "Vos", flag, sticker);
   }
 
-  addEntrant(draw: DrawResult, name: string, sticker?: StickerCode | null) {
+  addEntrant(draw: DrawResult, name: string, sticker?: StickerCode | null, id?: string) {
     this.eventMode = true;
     const racer = this.createRacer(draw, name, { text: name, color: draw.strokes[0].color }, sticker);
+    racer.id = id;
     racer.cadence = 150 + Math.random() * 100;
     racer.nextCheerAt = Math.random() * 250;
     const category = 1 << this.racers.length;
@@ -290,6 +292,11 @@ export class Race {
 
   cheer() {
     if (this.player) this.cheerRacer(this.player);
+  }
+
+  cheerEntrant(id: string) {
+    const racer = this.racers.find(r => r.id === id);
+    if (racer) this.cheerRacer(racer);
   }
 
   private cheerRacer(racer: Racer) {

@@ -59,6 +59,52 @@ test('manual room caps at six and rejects malformed drawings', () => {
   assert.equal(room.join({ name: '7', strokes }).status, 409);
   assert.equal(room.start(), true);
 });
+
+test('cheer validates ids and broadcasts without changing room state', () => {
+  const messages = [];
+  const room = createRoom(0, message => messages.push(message));
+  const before = room.state();
+  for (const id of [undefined, null, 42, '', '   ']) assert.equal(room.cheer(id), false);
+  assert.equal(messages.length, 0);
+  assert.equal(room.cheer('unknown-or-old-id'), true);
+  assert.deepEqual(messages, [{ type: 'cheer', id: 'unknown-or-old-id' }]);
+  assert.deepEqual(room.state(), before);
+});
+
+test('entrant taps target only their racer and share the automatic cheer cooldown', () => {
+  const race = new Race(canvas(), { onTick() {}, onFinish() {}, onAllFinish() {} });
+  const first = race.addEntrant(restoreDrawing(strokes), 'Uno', null, 'one');
+  const second = race.addEntrant(restoreDrawing(strokes), 'Dos', null, 'two');
+  first.nextCheerAt = 0;
+  second.nextCheerAt = 0;
+  race.start();
+  scheduled(); // The normal loop applies each racer's initial automatic cheer.
+  assert.equal(first.lastCheerAt, now);
+  now += 109;
+  const initialVelocity = { ...first.body.velocity };
+  for (let i = 0; i < 100; i++) race.cheerEntrant('one');
+  assert.deepEqual(first.body.velocity, initialVelocity);
+  now += 1;
+  const otherVelocity = { ...second.body.velocity };
+  race.cheerEntrant('one');
+  assert.ok(first.body.velocity.x > initialVelocity.x);
+  assert.deepEqual(second.body.velocity, otherVelocity);
+  assert.equal(first.lastCheerAt, now);
+  const boostedVelocity = { ...first.body.velocity };
+  race.cheerEntrant('missing');
+  race.cheerEntrant('one');
+  assert.deepEqual(first.body.velocity, boostedVelocity);
+  now += 1;
+  first.nextCheerAt = 0; // A due automatic cheer cannot bypass the tap's cooldown.
+  const callback = scheduled;
+  callback();
+  assert.equal(first.lastCheerAt, now - 1);
+  race.stop();
+  now += 200;
+  const stoppedVelocity = { ...first.body.velocity };
+  race.cheerEntrant('one');
+  assert.deepEqual(first.body.velocity, stoppedVelocity);
+});
 for (const count of [2, 6]) test(`${count} physical entrants finish with independent bodies and legs`, () => {
   let result;
   const race = new Race(canvas(), { onTick() {}, onFinish() { assert.fail('individual callback'); },

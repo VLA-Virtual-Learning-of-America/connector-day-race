@@ -39,6 +39,10 @@ app.post('/api/start', (_req, res) => {
   if (!room.start()) return res.status(409).json({ error: 'La sala está vacía o la carrera ya empezó.' });
   res.json({ ok: true });
 });
+app.post('/api/cheer', (req, res) => {
+  if (!room.cheer(req.body?.id)) return res.status(400).json({ error: 'ID inválido.' });
+  res.sendStatus(204);
+});
 app.post('/api/reset', (_req, res) => {
   room.reset();
   res.json({ ok: true });

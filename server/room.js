@@ -54,5 +54,10 @@ export function createRoom(autoStart, broadcast) {
     started = false;
     broadcast(state());
   }
-  return { state, start, join, reset };
+  function cheer(id) {
+    if (typeof id !== 'string' || !id.trim()) return false;
+    broadcast({ type: 'cheer', id });
+    return true;
+  }
+  return { state, start, join, reset, cheer };
 }
