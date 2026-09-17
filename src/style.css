@@ -96,6 +96,32 @@ button.primary { background: var(--vla-accent); color: white; }
 button.secondary { background: var(--vla-accent2); color: white; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.color-picker {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px;
+}
+
+button.color-swatch {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 2px solid var(--vla-ink);
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: 2px 2px 0 var(--vla-ink);
+}
+
+button.color-swatch.active {
+  box-shadow: 0 0 0 3px var(--vla-paper), 0 0 0 5px var(--vla-ink);
+}
+
+button.color-swatch:focus-visible {
+  outline: 2px dashed var(--vla-ink);
+  outline-offset: 8px;
+}
+
 input[type="text"], input[type="tel"] {
   font: inherit;
   padding: 12px 16px;

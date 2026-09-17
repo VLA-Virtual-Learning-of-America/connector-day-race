@@ -24,6 +24,12 @@ app.innerHTML = `
     <h1>Dibujá tu criatura</h1>
     <p class="subtitle">Dibujá el cuerpo, soltá y agregá patas en trazos separados. ¡Esas patas se moverán al correr!</p>
     <canvas id="draw-canvas" width="480" height="360"></canvas>
+    <div class="color-picker" role="group" aria-label="Color del trazo">
+      <button type="button" class="color-swatch active" data-color="#12151a" style="--swatch: var(--vla-ink)" aria-label="Negro" aria-pressed="true" title="Negro"></button>
+      <button type="button" class="color-swatch" data-color="#ff5a36" style="--swatch: var(--vla-accent)" aria-label="Naranja" aria-pressed="false" title="Naranja"></button>
+      <button type="button" class="color-swatch" data-color="#1f6feb" style="--swatch: var(--vla-accent2)" aria-label="Azul" aria-pressed="false" title="Azul"></button>
+      <button type="button" class="color-swatch" data-color="#8b5cf6" style="--swatch: #8b5cf6" aria-label="Violeta" aria-pressed="false" title="Violeta"></button>
+    </div>
     <div class="toolbar">
       <button id="btn-clear">Borrar</button>
       <button id="btn-borrow">Prestame una</button>
@@ -84,6 +90,17 @@ function show(screen: keyof typeof screens) {
 
 const drawCanvas = document.getElementById("draw-canvas") as HTMLCanvasElement;
 const pad = new DrawPad(drawCanvas);
+const colorButtons = document.querySelectorAll<HTMLButtonElement>(".color-swatch");
+for (const button of colorButtons) {
+  button.addEventListener("click", () => {
+    pad.setColor(button.dataset.color!);
+    for (const swatch of colorButtons) {
+      const selected = swatch === button;
+      swatch.classList.toggle("active", selected);
+      swatch.setAttribute("aria-pressed", String(selected));
+    }
+  });
+}
 
 let currentDraw: ReturnType<DrawPad["extract"]> | null = null;
 let racerName = "";

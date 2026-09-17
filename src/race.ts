@@ -180,11 +180,11 @@ export class Race {
       kind: "player",
       label: "Vos",
       color: "#ff5a36",
-      sprite: legs.length ? bodyStroke.sprite : draw.sprite,
+      sprite: bodyStroke.sprite,
       spriteW: draw.width,
       spriteH: draw.height,
-      spriteX: (legs.length ? bodyStroke.x : 0) - center.x,
-      spriteY: (legs.length ? bodyStroke.y : 0) - center.y,
+      spriteX: bodyStroke.x - center.x,
+      spriteY: bodyStroke.y - center.y,
       legs,
       positions: [],
       finished: false,
@@ -316,46 +316,100 @@ export class Race {
     cancelAnimationFrame(this.rafId);
   }
 
+  // Render-only projection: race distance controls depth, never physics.
+  private project(worldX: number, laneOffset = 0) {
+    const progress = Math.max(0, Math.min(1, worldX / FINISH_X));
+    const scale = 1 - progress * 0.6;
+    return {
+      progress, scale,
+      screenX: this.canvas.width / 2 + laneOffset * scale,
+      screenY: this.canvas.height * (0.91 - progress * 0.69),
+    };
+  }
+
   private render(elapsed: number) {
     const { ctx, canvas } = this;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const halfWidth = canvas.width * 0.46;
+    const near = this.project(0);
+    const far = this.project(FINISH_X);
+    const backdrop = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    backdrop.addColorStop(0, "#e6f1f4");
+    backdrop.addColorStop(1, "#cee1c6");
+    ctx.fillStyle = backdrop;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.beginPath();
+    ctx.moveTo(near.screenX - halfWidth, near.screenY);
+    ctx.lineTo(far.screenX - halfWidth * far.scale, far.screenY);
+    ctx.lineTo(far.screenX + halfWidth * far.scale, far.screenY);
+    ctx.lineTo(near.screenX + halfWidth, near.screenY);
+    ctx.closePath();
+    ctx.fillStyle = "#f2dfbb";
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 3;
+    ctx.stroke();
 
-    const camX = this.player?.body ? this.player.body.position.x - canvas.width * 0.28 : 0;
-
-    ctx.save();
-    ctx.translate(-camX, 0);
-
-    // track lanes + finish line
-    ctx.strokeStyle = "rgba(18,21,26,0.25)";
-    ctx.setLineDash([10, 10]);
-    for (const laneY of [GROUND_Y - 90, GROUND_Y - 45]) {
-      ctx.beginPath();
-      ctx.moveTo(0, laneY);
-      ctx.lineTo(FINISH_X + 200, laneY);
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-    ctx.fillStyle = "#12151a";
-    ctx.fillRect(FINISH_X, GROUND_Y - 140, 6, 180);
-
-    for (const r of this.racers) {
-      if (r.kind === "player" && r.body) {
-        this.drawPlayer(r, GROUND_Y);
-      } else {
-        const idx = Math.max(
-          0,
-          Math.min(r.positions.length - 1, Math.floor(elapsed / SAMPLE_MS)),
-        );
-        const x = START_X + (r.positions[idx] ?? 0);
-        const laneY = r.kind === "computer" ? GROUND_Y - 45 : GROUND_Y - 90;
-        this.drawGhost(x, laneY, r.color, r.label, r.finishTimeMs ?? elapsed);
+    const laneWidth = halfWidth * 2 / this.racers.length;
+    ctx.strokeStyle = "rgba(18,21,26,0.22)";
+    ctx.lineWidth = 1.5;
+    for (let i = 1; i < this.racers.length; i++) {
+      const offset = -halfWidth + i * laneWidth;
+      // Dashes shrink toward the finish with the same projection.
+      for (let x = 0; x < FINISH_X; x += 200) {
+        const a = this.project(x, offset);
+        const b = this.project(x + 100, offset);
+        ctx.beginPath();
+        ctx.moveTo(a.screenX, a.screenY);
+        ctx.lineTo(b.screenX, b.screenY);
+        ctx.stroke();
       }
     }
+    for (let x = 800; x < FINISH_X; x += 800) {
+      const p = this.project(x);
+      ctx.fillStyle = "rgba(255,255,255,0.4)";
+      ctx.fillRect(p.screenX - halfWidth * p.scale, p.screenY, halfWidth * 2 * p.scale, 2 * p.scale);
+    }
+    const finishWidth = halfWidth * 2 * far.scale;
+    for (let row = 0; row < 2; row++) {
+      for (let col = 0; col < 24; col++) {
+        ctx.fillStyle = (row + col) % 2 ? "#ffffff" : "#12151a";
+        ctx.fillRect(far.screenX - finishWidth / 2 + col * finishWidth / 24,
+          far.screenY + row * 6, finishWidth / 24 + 0.5, 6);
+      }
+    }
+    ctx.fillStyle = "#12151a";
+    ctx.font = "bold 13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("META", far.screenX, far.screenY - 12);
 
-    ctx.restore();
+    // Far-to-near drawing order, without mutating the racers array.
+    const visible = this.racers.map((r, i) => {
+      const idx = Math.max(0, Math.min(r.positions.length - 1, Math.floor(elapsed / SAMPLE_MS)));
+      const x = r.body?.position.x ?? START_X + (r.positions[idx] ?? 0);
+      return { r, x, p: this.project(x, -halfWidth + laneWidth * (i + 0.5)) };
+    }).sort((a, b) => b.x - a.x);
+    for (const { r, x, p } of visible) {
+      ctx.save();
+      ctx.translate(p.screenX, p.screenY);
+      ctx.scale(p.scale, p.scale);
+      ctx.fillStyle = "rgba(18,21,26,0.18)";
+      ctx.beginPath();
+      ctx.ellipse(0, 3, r.kind === "player" ? Math.max(26, (r.spriteW ?? 60) * 0.42) : 30,
+        9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      if (r.kind === "player" && r.body) {
+        // Preserve sprite, animated legs, flag offsets and physical jump height.
+        ctx.translate(-x, -GROUND_Y);
+        this.drawPlayer(r);
+      } else {
+        this.drawGhost(0, -30, r.color, r.label, r.finishTimeMs ?? elapsed);
+      }
+      ctx.restore();
+    }
   }
 
-  private drawPlayer(r: Racer, groundY: number) {
+  private drawPlayer(r: Racer) {
     const { ctx } = this;
     const body = r.body!;
     ctx.save();
@@ -411,7 +465,7 @@ export class Race {
     ctx.textAlign = "center";
     ctx.fillText(r.label, body.position.x, body.position.y - (r.spriteH ?? 60) / 2 - 12);
     ctx.textAlign = "left";
-    void groundY;
+
   }
 
   private drawLegs(width: number, height: number, phase: number, stride: number, color: string) {

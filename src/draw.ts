@@ -1,6 +1,9 @@
 type Point = { x: number; y: number };
+const DEFAULT_COLOR = "#12151a";
+type Stroke = { points: Point[]; color: string };
 
 export interface DrawStroke {
+  color: string;
   points: Point[]; // relative to the complete drawing's bounding box
   sprite: HTMLCanvasElement; // only this stroke, on transparent pixels
   x: number; // crop origin in the same coordinates as points
@@ -29,14 +32,15 @@ function bounds(points: Point[]) {
   return { minX, minY, maxX, maxY };
 }
 
-function paintStroke(ctx: CanvasRenderingContext2D, points: Point[], x = 0, y = 0) {
-  ctx.strokeStyle = "#12151a";
+function paintStroke(ctx: CanvasRenderingContext2D, points: Point[], color: string, x = 0, y = 0, close = false) {
+  ctx.strokeStyle = color;
   ctx.lineWidth = 8;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.beginPath();
   ctx.moveTo(points[0].x - x, points[0].y - y);
   for (const p of points) ctx.lineTo(p.x - x, p.y - y);
+  if (close) ctx.closePath();
   ctx.stroke();
 }
 
@@ -44,7 +48,8 @@ export class DrawPad {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private drawing = false;
-  private strokes: Point[][] = [];
+  private strokes: Stroke[] = [];
+  private color = DEFAULT_COLOR;
   private activePointer: number | null = null;
   private last: { x: number; y: number } | null = null;
 
@@ -65,14 +70,19 @@ export class DrawPad {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.fillStyle = "#ffffff";
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    this.ctx.strokeStyle = "#12151a";
+    this.ctx.strokeStyle = this.color;
     this.ctx.lineWidth = 8;
     this.ctx.lineCap = "round";
     this.ctx.lineJoin = "round";
   }
 
   hasEnoughInk(): boolean {
-    return this.strokes.reduce((total, stroke) => total + stroke.length, 0) >= 8;
+    return this.strokes.reduce((total, stroke) => total + stroke.points.length, 0) >= 8;
+  }
+
+  setColor(color: string) {
+    this.color = color;
+    this.ctx.strokeStyle = color;
   }
 
   private toLocal(clientX: number, clientY: number) {
@@ -86,17 +96,20 @@ export class DrawPad {
     const start = (x: number, y: number) => {
       this.drawing = true;
       this.last = { x, y };
-      this.strokes.push([{ x, y }]);
-      paintStroke(this.ctx, this.strokes[this.strokes.length - 1]);
+      const stroke = { points: [{ x, y }], color: this.color };
+      this.strokes.push(stroke);
+      paintStroke(this.ctx, stroke.points, stroke.color);
     };
     const move = (x: number, y: number) => {
       if (!this.drawing || !this.last) return;
+      const stroke = this.strokes[this.strokes.length - 1];
+      this.ctx.strokeStyle = stroke.color;
       this.ctx.beginPath();
       this.ctx.moveTo(this.last.x, this.last.y);
       this.ctx.lineTo(x, y);
       this.ctx.stroke();
       this.last = { x, y };
-      this.strokes[this.strokes.length - 1].push({ x, y });
+      stroke.points.push({ x, y });
     };
     const end = (e: PointerEvent) => {
       if (e.pointerId !== this.activePointer) return;
@@ -137,20 +150,21 @@ export class DrawPad {
       { x: cx - 100, y: cy + 35 },
       { x: cx - 110, y: cy - 10 },
     ];
-    this.strokes = [body];
+    this.strokes = [{ points: body, color: DEFAULT_COLOR }];
     for (let i = 0; i < 3; i++) {
       const x = cx - 65 + i * 65;
       const y = cy + (i === 1 ? 62 : 50);
-      this.strokes.push([
+      this.strokes.push({ points: [
         { x, y }, { x: x - 8, y: y + 18 },
         { x: x + 4, y: y + 35 }, { x: x + 20, y: y + 35 },
-      ]);
+      ], color: DEFAULT_COLOR });
     }
-    for (const stroke of this.strokes) paintStroke(this.ctx, stroke);
+    for (const stroke of this.strokes) paintStroke(this.ctx, stroke.points, stroke.color);
+    this.ctx.strokeStyle = this.color;
   }
 
   extract(): DrawResult {
-    const allPoints = this.strokes.flat();
+    const allPoints = this.strokes.flatMap((stroke) => stroke.points);
     if (!allPoints.length) throw new Error("Cannot extract an empty drawing");
     const box = bounds(allPoints);
     const minX = Math.floor(box.minX) - 10;
@@ -165,17 +179,28 @@ export class DrawPad {
     sctx.drawImage(this.canvas, minX, minY, width, height, 0, 0, width, height);
 
     const points = allPoints.map((p) => ({ x: p.x - minX, y: p.y - minY }));
+    // Match addPlayer's largest bounding-box area selection, including ties.
+    const bodyStroke = this.strokes.reduce((largest, stroke) => {
+      const a = bounds(largest.points), b = bounds(stroke.points);
+      return (b.maxX - b.minX) * (b.maxY - b.minY) >
+        (a.maxX - a.minX) * (a.maxY - a.minY) ? stroke : largest;
+    });
+    const first = bodyStroke.points[0], last = bodyStroke.points[bodyStroke.points.length - 1];
+    const closeBody = Math.hypot(first.x - last.x, first.y - last.y) > 14;
+    // Also close the combined sprite; never modify the hull input points.
+    if (closeBody) paintStroke(sctx, [last, first], bodyStroke.color, minX, minY);
     const strokes = this.strokes.map((stroke): DrawStroke => {
-      const b = bounds(stroke);
+      const b = bounds(stroke.points);
       const x = Math.floor(b.minX) - 10;
       const y = Math.floor(b.minY) - 10;
       const crop = document.createElement("canvas");
       crop.width = Math.ceil(b.maxX) + 10 - x;
       crop.height = Math.ceil(b.maxY) + 10 - y;
       // Repaint in isolation: copying from the pad would include intersecting strokes.
-      paintStroke(crop.getContext("2d")!, stroke, x, y);
+      paintStroke(crop.getContext("2d")!, stroke.points, stroke.color, x, y, stroke === bodyStroke && closeBody);
       return {
-        points: stroke.map((p) => ({ x: p.x - minX, y: p.y - minY })),
+        color: stroke.color,
+        points: stroke.points.map((p) => ({ x: p.x - minX, y: p.y - minY })),
         sprite: crop, x: x - minX, y: y - minY,
         width: crop.width, height: crop.height,
         area: (b.maxX - b.minX) * (b.maxY - b.minY),
