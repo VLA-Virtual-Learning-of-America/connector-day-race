@@ -1,0 +1,196 @@
+:root {
+  --vla-ink: #12151a;
+  --vla-paper: #f4f1ea;
+  --vla-accent: #ff5a36;
+  --vla-accent2: #1f6feb;
+  --vla-line: #12151a;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--vla-paper);
+  color: var(--vla-ink);
+  overflow: hidden;
+  touch-action: none;
+}
+
+#app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.screen {
+  flex: 1;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  gap: 12px;
+  text-align: center;
+}
+
+.screen.active { display: flex; }
+
+h1 {
+  font-size: clamp(22px, 5vw, 34px);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  font-size: 14px;
+  opacity: 0.7;
+  margin: 0 0 4px;
+  max-width: 480px;
+}
+
+.card {
+  background: white;
+  border: 3px solid var(--vla-ink);
+  border-radius: 18px;
+  box-shadow: 6px 6px 0 var(--vla-ink);
+  padding: 16px;
+}
+
+canvas#draw-canvas {
+  background: white;
+  border-radius: 12px;
+  touch-action: none;
+  max-width: 92vw;
+  max-height: 46vh;
+  cursor: crosshair;
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+button {
+  font: inherit;
+  font-weight: 700;
+  border: 3px solid var(--vla-ink);
+  border-radius: 999px;
+  padding: 12px 22px;
+  background: white;
+  color: var(--vla-ink);
+  cursor: pointer;
+  box-shadow: 4px 4px 0 var(--vla-ink);
+  transition: transform 0.05s ease;
+}
+
+button:active {
+  transform: translate(3px, 3px);
+  box-shadow: 1px 1px 0 var(--vla-ink);
+}
+
+button.primary { background: var(--vla-accent); color: white; }
+button.secondary { background: var(--vla-accent2); color: white; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+input[type="text"], input[type="tel"] {
+  font: inherit;
+  padding: 12px 16px;
+  border: 3px solid var(--vla-ink);
+  border-radius: 12px;
+  width: min(320px, 80vw);
+}
+
+#race-canvas {
+  background: linear-gradient(#bfe3ff 0%, #bfe3ff 55%, #d9c48a 55%, #d9c48a 100%);
+  border-radius: 12px;
+  width: 96vw;
+  max-width: 900px;
+  height: 46vh;
+  touch-action: none;
+}
+
+.hud {
+  display: flex;
+  gap: 24px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.hud span.label { opacity: 0.6; font-weight: 500; margin-right: 4px; }
+
+#cheer-btn {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  font-size: 20px;
+  background: var(--vla-accent);
+  color: white;
+  user-select: none;
+}
+
+#result-flag {
+  font-size: 12px;
+  background: var(--vla-ink);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 999px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#racer-photo-preview {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--vla-ink);
+}
+
+#result-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px;
+}
+
+.leaderboard {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  width: min(360px, 90vw);
+  text-align: left;
+}
+
+.leaderboard li {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 4px;
+  border-bottom: 2px dashed rgba(18,21,26,0.15);
+  font-weight: 600;
+}
+
+.hint { font-size: 12px; opacity: 0.55; }
+
+#ai-caption {
+  min-height: 40px;
+  font-style: italic;
+  max-width: 380px;
+}
+
+.badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-size: 11px;
+  font-weight: 800;
+  background: var(--vla-ink);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.05em;
+}

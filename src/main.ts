@@ -1,0 +1,205 @@
+import "./style.css";
+import { DrawPad } from "./draw";
+import { Race, FINISH_X } from "./race";
+import { snapSelfie } from "./camera";
+import { generateCaption } from "./ai";
+import { bestGhost, leaderboardTop, saveGhost, type GhostRun } from "./storage";
+
+const COURSE_NAME = "AI Builders";
+
+const app = document.querySelector<HTMLDivElement>("#app")!;
+app.innerHTML = `
+  <section id="screen-intro" class="screen active">
+    <span class="badge">Connector Day · VLA</span>
+    <h1>Dibujá tu corredor 🐴</h1>
+    <p class="subtitle">Sin cuenta, sin instalar nada. Dibujá cualquier criatura, dale nombre
+      y hacela correr contra la computadora y contra los mejores tiempos del evento.</p>
+    <div class="card">
+      <button id="btn-start" class="primary">Empezar</button>
+    </div>
+    <p class="hint">Toca "Empezar" para dibujar en la pantalla</p>
+  </section>
+
+  <section id="screen-draw" class="screen">
+    <h1>Dibujá tu criatura</h1>
+    <p class="subtitle">Usá el dedo o el mouse. Cuanto más rara, más divertida la carrera.</p>
+    <canvas id="draw-canvas" width="480" height="360"></canvas>
+    <div class="toolbar">
+      <button id="btn-clear">Borrar</button>
+      <button id="btn-borrow">Prestame una</button>
+      <button id="btn-done" class="primary">Ya está</button>
+    </div>
+  </section>
+
+  <section id="screen-name" class="screen">
+    <h1>Nombrá tu corredor</h1>
+    <div class="card" style="display:flex;flex-direction:column;gap:14px;align-items:center;">
+      <input id="input-name" type="text" placeholder="Nombre de tu criatura" maxlength="24" />
+      <button id="btn-race" class="primary">A correr 🏁</button>
+    </div>
+  </section>
+
+  <section id="screen-race" class="screen">
+    <div class="hud">
+      <div><span class="label">Corredor</span><span id="hud-name">—</span></div>
+      <div><span class="label">Tiempo</span><span id="hud-time">0.0s</span></div>
+    </div>
+    <canvas id="race-canvas" width="900" height="460"></canvas>
+    <button id="cheer-btn" class="primary">¡Dale!</button>
+    <p class="hint">Tocá "¡Dale!" con ritmo (no lo mantengas presionado) — también podés
+      presionar la barra espaciadora.</p>
+  </section>
+
+  <section id="screen-result" class="screen">
+    <h1 id="result-title">🏁 ¡Meta!</h1>
+    <div class="card" id="result-card">
+      <img id="racer-photo-preview" style="display:none" />
+      <video id="hidden-video" autoplay playsinline muted style="display:none;width:1px;height:1px;"></video>
+      <div id="result-flag">${COURSE_NAME}</div>
+      <div><strong id="result-name">—</strong> · <span id="result-time">0.0s</span></div>
+      <p id="ai-caption">Generando comentario…</p>
+      <button id="btn-photo" class="secondary">Tomarme una foto</button>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 8px;">🏆 Mejores tiempos de hoy</h3>
+      <ol class="leaderboard" id="leaderboard"></ol>
+    </div>
+    <button id="btn-again" class="primary">Jugar de nuevo</button>
+  </section>
+`;
+
+const screens = {
+  intro: document.getElementById("screen-intro")!,
+  draw: document.getElementById("screen-draw")!,
+  name: document.getElementById("screen-name")!,
+  race: document.getElementById("screen-race")!,
+  result: document.getElementById("screen-result")!,
+};
+
+function show(screen: keyof typeof screens) {
+  for (const [key, el] of Object.entries(screens)) {
+    el.classList.toggle("active", key === screen);
+  }
+}
+
+const drawCanvas = document.getElementById("draw-canvas") as HTMLCanvasElement;
+const pad = new DrawPad(drawCanvas);
+
+let currentDraw: ReturnType<DrawPad["extract"]> | null = null;
+let racerName = "";
+
+document.getElementById("btn-start")!.addEventListener("click", () => {
+  pad.reset();
+  show("draw");
+});
+
+document.getElementById("btn-clear")!.addEventListener("click", () => pad.reset());
+document.getElementById("btn-borrow")!.addEventListener("click", () => pad.borrowSample());
+
+document.getElementById("btn-done")!.addEventListener("click", () => {
+  if (!pad.hasEnoughInk()) {
+    alert("Dibujá un poco más, o tocá 'Prestame una'.");
+    return;
+  }
+  currentDraw = pad.extract();
+  show("name");
+  (document.getElementById("input-name") as HTMLInputElement).focus();
+});
+
+let race: Race | null = null;
+
+document.getElementById("btn-race")!.addEventListener("click", () => {
+  if (!currentDraw) return;
+  racerName = (document.getElementById("input-name") as HTMLInputElement).value.trim() || "Sin nombre";
+  document.getElementById("hud-name")!.textContent = racerName;
+  show("race");
+
+  const raceCanvas = document.getElementById("race-canvas") as HTMLCanvasElement;
+  race = new Race(raceCanvas, {
+    onTick: (elapsedMs) => {
+      document.getElementById("hud-time")!.textContent = `${(elapsedMs / 1000).toFixed(1)}s`;
+    },
+    onFinish: ({ timeMs, positions }) => {
+      race?.stop();
+      onRaceFinished(timeMs, positions);
+    },
+  });
+
+  race.addPlayer(currentDraw, { text: COURSE_NAME, color: "#ff5a36" });
+
+  const ghost = bestGhost();
+  if (ghost) race.addGhost(ghost);
+
+  // Ritmo de computadora: un tiempo objetivo plausible, ligeramente aleatorio por partida.
+  const targetMs = 6200 + Math.random() * 2600;
+  race.addComputer(targetMs);
+
+  race.start();
+});
+
+const cheer = () => {
+  if (screens.race.classList.contains("active")) race?.cheer();
+};
+document.getElementById("cheer-btn")!.addEventListener("pointerdown", cheer);
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && screens.race.classList.contains("active")) {
+    e.preventDefault();
+    if (!e.repeat) cheer();
+  }
+});
+
+let lastPlace = 1;
+
+async function onRaceFinished(timeMs: number, positions: number[]) {
+  const ghosts = leaderboardTop(50);
+  lastPlace = 1 + ghosts.filter((g) => g.timeMs < timeMs).length;
+
+  const run: GhostRun = { name: racerName, timeMs, positions, createdAt: Date.now() };
+  saveGhost(run);
+
+  document.getElementById("result-name")!.textContent = racerName;
+  document.getElementById("result-time")!.textContent = `${(timeMs / 1000).toFixed(2)}s`;
+  document.getElementById("ai-caption")!.textContent = "Generando comentario…";
+  const photoPreview = document.getElementById("racer-photo-preview") as HTMLImageElement;
+  photoPreview.style.display = "none";
+
+  renderLeaderboard();
+  show("result");
+
+  const caption = await generateCaption({ name: racerName, timeMs, place: lastPlace });
+  document.getElementById("ai-caption")!.textContent = caption;
+}
+
+function renderLeaderboard() {
+  const list = document.getElementById("leaderboard")!;
+  list.innerHTML = "";
+  for (const g of leaderboardTop(8)) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.textContent = g.name;
+    const time = document.createElement("span");
+    time.textContent = `${(g.timeMs / 1000).toFixed(2)}s`;
+    li.append(name, time);
+    list.appendChild(li);
+  }
+}
+
+document.getElementById("btn-photo")!.addEventListener("click", async () => {
+  const video = document.getElementById("hidden-video") as HTMLVideoElement;
+  const dataUrl = await snapSelfie(video);
+  const img = document.getElementById("racer-photo-preview") as HTMLImageElement;
+  if (dataUrl) {
+    img.src = dataUrl;
+    img.style.display = "block";
+  } else {
+    alert("No se pudo acceder a la cámara. Seguí sin foto, no pasa nada.");
+  }
+});
+
+document.getElementById("btn-again")!.addEventListener("click", () => {
+  currentDraw = null;
+  pad.reset();
+  show("intro");
+});
+
+void FINISH_X;
