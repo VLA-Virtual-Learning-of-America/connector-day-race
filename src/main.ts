@@ -1,6 +1,6 @@
 import "./style.css";
 import { DrawPad } from "./draw";
-import { Race, FINISH_X } from "./race";
+import { Race, FINISH_X, STICKERS, stickerFor, type StickerCode } from "./race";
 import { snapSelfie } from "./camera";
 import { generateCaption } from "./ai";
 import { bestGhost, leaderboardTop, saveGhost, type GhostRun } from "./storage";
@@ -49,8 +49,22 @@ app.innerHTML = `
     <h1>Nombrá tu corredor</h1>
     <div class="card" style="display:flex;flex-direction:column;gap:14px;align-items:center;">
       <input id="input-name" type="text" placeholder="Nombre de tu criatura" maxlength="24" />
-      <button id="btn-race" class="primary">A correr 🏁</button>
+      <button id="btn-race" class="primary">Elegir sticker</button>
     </div>
+  </section>
+
+  <section id="screen-sticker" class="screen">
+    <h1>Elegí tu sticker</h1>
+    <p class="subtitle">Un curso, un pequeño superpoder para tu criatura.</p>
+    <fieldset class="sticker-grid">
+      <legend>Elegí uno o corré sin sticker</legend>
+      <label class="sticker-option"><input type="radio" name="sticker" value="" checked />
+        <strong>Sin sticker</strong><small>A tu propio ritmo</small><span>Sin bonus de juego</span></label>
+      ${STICKERS.map(s => `<label class="sticker-option"><input type="radio" name="sticker" value="${s.code}" />
+        <strong>${s.code}</strong><small>${s.name}</small><span>${s.description}</span></label>`).join('')}
+    </fieldset>
+    <div class="toolbar"><button id="btn-sticker-back">Volver</button>
+      <button id="btn-sticker-go" class="primary">${joinMode ? 'Sumarme a la carrera' : 'A correr 🏁'}</button></div>
   </section>
 
   <section id="screen-race" class="screen">
@@ -86,6 +100,7 @@ const screens = {
   intro: document.getElementById("screen-intro")!,
   draw: document.getElementById("screen-draw")!,
   name: document.getElementById("screen-name")!,
+  sticker: document.getElementById("screen-sticker")!,
   race: document.getElementById("screen-race")!,
   result: document.getElementById("screen-result")!,
 };
@@ -112,6 +127,7 @@ for (const button of colorButtons) {
 
 let currentDraw: ReturnType<DrawPad["extract"]> | null = null;
 let racerName = "";
+let selectedSticker: StickerCode | null = null;
 
 document.getElementById("btn-start")!.addEventListener("click", () => {
   pad.reset();
@@ -133,16 +149,22 @@ document.getElementById("btn-done")!.addEventListener("click", () => {
 
 let race: Race | null = null;
 
-document.getElementById("btn-race")!.addEventListener("click", async () => {
+document.getElementById("btn-sticker-back")!.addEventListener("click", () => show("name"));
+document.getElementById("btn-race")!.addEventListener("click", () => {
   if (!currentDraw) return;
   racerName = (document.getElementById("input-name") as HTMLInputElement).value.trim() || "Sin nombre";
+  show("sticker");
+});
+document.getElementById("btn-sticker-go")!.addEventListener("click", async () => {
+  if (!currentDraw) return;
+  selectedSticker = stickerFor(document.querySelector<HTMLInputElement>('input[name="sticker"]:checked')?.value)?.code ?? null;
   if (joinMode) {
-    const button = document.getElementById("btn-race") as HTMLButtonElement;
+    const button = document.getElementById("btn-sticker-go") as HTMLButtonElement;
     button.disabled = true;
     try {
       const response = await fetch("/api/join", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: racerName, strokes: currentDraw.strokes.map(({ points, color }) => ({ points, color })) }),
+        body: JSON.stringify({ name: racerName, sticker: selectedSticker, strokes: currentDraw.strokes.map(({ points, color }) => ({ points, color })) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
@@ -171,7 +193,7 @@ document.getElementById("btn-race")!.addEventListener("click", async () => {
     },
   });
 
-  race.addPlayer(currentDraw, { text: COURSE_NAME, color: "#ff5a36" });
+  race.addPlayer(currentDraw, { text: COURSE_NAME, color: "#ff5a36" }, selectedSticker);
 
   const ghost = bestGhost();
   if (ghost) race.addGhost(ghost);
@@ -200,10 +222,11 @@ async function onRaceFinished(timeMs: number, positions: number[]) {
   const ghosts = leaderboardTop(50);
   lastPlace = 1 + ghosts.filter((g) => g.timeMs < timeMs).length;
 
-  const run: GhostRun = { name: racerName, timeMs, positions, createdAt: Date.now() };
+  const run: GhostRun = { name: racerName, sticker: selectedSticker, timeMs, positions, createdAt: Date.now() };
   saveGhost(run);
 
   document.getElementById("result-name")!.textContent = racerName;
+  document.getElementById("result-flag")!.textContent = stickerFor(selectedSticker)?.name ?? "VLA · Sin sticker";
   document.getElementById("result-time")!.textContent = `${(timeMs / 1000).toFixed(2)}s`;
   document.getElementById("ai-caption")!.textContent = "Generando comentario…";
   const photoPreview = document.getElementById("racer-photo-preview") as HTMLImageElement;
@@ -252,7 +275,6 @@ void FINISH_X;
 
 if (joinMode) {
   document.body.classList.add("event-mode");
-  document.getElementById("btn-race")!.textContent = "Sumarme a la carrera";
   show("draw");
 }
 }

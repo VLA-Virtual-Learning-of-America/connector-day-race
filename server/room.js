@@ -33,13 +33,16 @@ export function createRoom(autoStart, broadcast) {
     broadcast({ type: 'start', racers });
     return true;
   }
-  function join({ name, strokes } = {}) {
+  function join({ name, strokes, sticker = null } = {}) {
     if (started) return { status: 409, error: 'La carrera ya empezó. Esperá la próxima ronda.' };
     if (racers.length >= MAX_RACERS) return { status: 409, error: 'La sala está llena.' };
     if (typeof name !== 'string' || !name.trim() || name.trim().length > 24 || !validStrokes(strokes)) {
       return { status: 400, error: 'Revisá el nombre y dibujá un cuerpo con superficie, no solo una línea.' };
     }
-    const racer = { id: randomUUID(), name: name.trim(),
+    if (sticker !== null && !['CCNA', 'AWS', 'PMP', 'MKT', 'AIB', 'ACM', 'CYB', 'SIX'].includes(sticker)) {
+      return { status: 400, error: 'Elegí un sticker válido o Sin sticker.' };
+    }
+    const racer = { id: randomUUID(), name: name.trim(), sticker,
       strokes: strokes.map(s => ({ color: s.color, points: s.points.map(p => ({ x: p.x, y: p.y })) })) };
     racers = [...racers, racer];
     broadcast(state());

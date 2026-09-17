@@ -1,4 +1,7 @@
+import type { StickerCode } from './race';
+
 export interface GhostRun {
+  sticker?: StickerCode | null;
   name: string;
   timeMs: number;
   positions: number[]; // x offset in px, sampled every ~50ms from start

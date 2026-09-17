@@ -1,7 +1,7 @@
 import { restoreDrawing, type Stroke } from './draw';
-import { Race } from './race';
+import { Race, type StickerCode } from './race';
 
-interface Entrant { id: string; name: string; strokes: Stroke[] }
+interface Entrant { id: string; name: string; strokes: Stroke[]; sticker?: StickerCode | null }
 interface Lobby { type: 'lobby' | 'start'; racers: Entrant[]; started?: boolean; max?: number; autoStart?: number }
 
 export async function mountHost() {
@@ -75,7 +75,7 @@ export async function mountHost() {
           reset.hidden = false;
         },
       });
-      for (const entrant of message.racers) race.addEntrant(restoreDrawing(entrant.strokes), entrant.name);
+      for (const entrant of message.racers) race.addEntrant(restoreDrawing(entrant.strokes), entrant.name, entrant.sticker);
       race.start();
       return;
     }
@@ -102,7 +102,7 @@ export async function mountHost() {
       const thumbnail = restoreDrawing(entrant.strokes).sprite;
       thumbnail.setAttribute('aria-label', `Dibujo de ${entrant.name}`);
       const name = document.createElement('span');
-      name.textContent = entrant.name;
+      name.textContent = entrant.name + (entrant.sticker ? ` · ${entrant.sticker}` : '');
       item.append(thumbnail, name);
       list.append(item);
     }

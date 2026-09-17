@@ -112,3 +112,30 @@ test('event time limit ranks unfinished entrants after arrivals', () => {
   assert.equal(result[1].timeMs, undefined);
   assert.equal(scheduled, undefined);
 });
+
+test('room preserves selected stickers and accepts legacy clients without one', () => {
+  const room = createRoom(0, () => {});
+  assert.equal(room.join({ name: 'Sticker', strokes, sticker: 'CCNA' }).status, 201);
+  assert.equal(room.state().racers[0].sticker, 'CCNA');
+  assert.equal(room.join({ name: 'Legacy', strokes }).status, 201);
+  assert.equal(room.state().racers[1].sticker, null);
+  assert.equal(room.join({ name: 'Invalid', strokes, sticker: 'UNKNOWN' }).status, 400);
+});
+
+for (const sticker of ['CCNA', 'AWS', 'PMP', 'MKT', 'AIB', 'ACM', 'CYB', 'SIX']) {
+  test(`${sticker} finishes with finite physics, bounded lean and intact flag`, () => {
+    let result;
+    const race = new Race(canvas(), { onTick() {}, onFinish() {}, onAllFinish: rows => { result = rows; } });
+    const racer = race.addEntrant(restoreDrawing(strokes), sticker, sticker);
+    assert.equal(racer.flagText, sticker);
+    race.start();
+    for (let frame = 0; frame < 3700 && !result; frame++) {
+      now += 1000 / 60;
+      const callback = scheduled; scheduled = undefined; callback?.();
+      assert.ok(Number.isFinite(racer.body.position.x) && Number.isFinite(racer.body.position.y));
+      assert.ok(Math.abs(racer.body.angle) <= 0.601);
+    }
+    assert.ok(result[0].timeMs > 0 && result[0].timeMs < 60000);
+    assert.equal(result[0].sticker, sticker);
+  });
+}

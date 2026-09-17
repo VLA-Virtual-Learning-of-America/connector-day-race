@@ -14,12 +14,34 @@ const UPRIGHT_STIFFNESS = 0.025; // tuned for the fixed 60 Hz physics step
 const UPRIGHT_DAMPING = 0.22;
 const MAX_BODY_ANGLE = 0.6;
 
+export interface Perk {
+  launchSpeed?: number; speed?: number; jump?: number; cooldown?: number;
+  firstBoost?: number; upright?: number; friction?: number; gaitSmoothing?: number;
+}
+export const STICKERS = [
+  { code: 'CCNA', name: 'Cisco CCNA', description: '+15% de velocidad en el primer segundo', perk: { launchSpeed: 1.15 } },
+  { code: 'AWS', name: 'AWS Cloud Practitioner', description: 'Un salto un poquito más alto al alentar', perk: { jump: 1.15 } },
+  { code: 'PMP', name: 'PMP', description: 'Menos espera entre tus toques de ¡Dale!', perk: { cooldown: 0.9 } },
+  { code: 'MKT', name: 'Marketing Digital', description: 'Un empujón extra en el primer ¡Dale!', perk: { firstBoost: 1.15 } },
+  { code: 'AIB', name: 'AI Builder Foundation', description: 'Recupera la postura un poquito más rápido', perk: { upright: 1.15 } },
+  { code: 'ACM', name: 'AI Content Machine', description: '+10% de velocidad durante toda la carrera', perk: { speed: 1.1 } },
+  { code: 'CYB', name: 'Ciberseguridad', description: 'Menos fricción para deslizar un poquito más', perk: { friction: 0.85 } },
+  { code: 'SIX', name: 'Lean Six Sigma', description: 'Patas con ritmo más parejo · solo visual', perk: { gaitSmoothing: 0.15 } },
+] as const;
+export type StickerCode = typeof STICKERS[number]['code'];
+export function stickerFor(code?: string | null) { return STICKERS.find(s => s.code === code); }
+
+interface Spectator {
+  side: number; depth: number; size: number; color: string; skin: string;
+  phase: number; raised: boolean; flag?: string;
+}
+
 export interface FlagOptions {
   text: string; // e.g. "AI BUILDERS" or "VLA"
   color: string;
 }
 
-export interface EventResult { name: string; timeMs?: number; distance: number }
+export interface EventResult { name: string; sticker?: StickerCode; timeMs?: number; distance: number }
 
 export interface RaceCallbacks {
   onAllFinish?: (results: EventResult[]) => void;
@@ -28,6 +50,10 @@ export interface RaceCallbacks {
 }
 
 interface Racer {
+  perk?: Perk;
+  sticker?: StickerCode;
+  cheered?: boolean;
+  gaitSpeed?: number;
   grounded?: boolean;
   lastGroundedAt?: number;
   lastCheerAt?: number;
@@ -73,6 +99,7 @@ export class Race {
   private cb: RaceCallbacks;
   private rafId = 0;
   private ground: Matter.Body;
+  private spectators: Spectator[] = [];
 
   constructor(canvas: HTMLCanvasElement, cb: RaceCallbacks) {
     this.canvas = canvas;
@@ -80,6 +107,18 @@ export class Race {
     if (!ctx) throw new Error("2D context not available");
     this.ctx = ctx;
     this.cb = cb;
+    const colors = ['#ff5a36', '#1f6feb', '#8b5cf6', '#e5ad35', '#288573'];
+    const skins = ['#f2c9a5', '#ba805c', '#704b3b'];
+    const flags = ['VLA', ...STICKERS.map(s => s.code)];
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 10; i++) this.spectators.push({
+        side, depth: 0.2 + i * 0.078, size: 0.85 + Math.random() * 0.3,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        skin: skins[Math.floor(Math.random() * skins.length)],
+        phase: Math.random() * Math.PI * 2, raised: i % 3 !== 0,
+        flag: i % 4 === 1 ? flags[Math.floor(Math.random() * flags.length)] : undefined,
+      });
+    }
     this.engine.gravity.y = 1;
 
     this.ground = Bodies.rectangle(FINISH_X, GROUND_Y + 40, FINISH_X * 2, 80, {
@@ -114,13 +153,13 @@ export class Race {
       ((a === r.body && b === this.ground) || (b === r.body && a === this.ground)));
   }
 
-  addPlayer(draw: DrawResult, flag: FlagOptions) {
-    this.player = this.createRacer(draw, "Vos", flag);
+  addPlayer(draw: DrawResult, flag: FlagOptions, sticker?: StickerCode | null) {
+    this.player = this.createRacer(draw, "Vos", flag, sticker);
   }
 
-  addEntrant(draw: DrawResult, name: string) {
+  addEntrant(draw: DrawResult, name: string, sticker?: StickerCode | null) {
     this.eventMode = true;
-    const racer = this.createRacer(draw, name, { text: name, color: draw.strokes[0].color });
+    const racer = this.createRacer(draw, name, { text: name, color: draw.strokes[0].color }, sticker);
     racer.cadence = 150 + Math.random() * 100;
     racer.nextCheerAt = Math.random() * 250;
     const category = 1 << this.racers.length;
@@ -131,7 +170,9 @@ export class Race {
     return racer;
   }
 
-  private createRacer(draw: DrawResult, name: string, flag: FlagOptions): Racer {
+  private createRacer(draw: DrawResult, name: string, flag: FlagOptions, sticker?: StickerCode | null): Racer {
+    const selected = stickerFor(sticker);
+    const perk: Perk | undefined = selected?.perk;
     const bodyStroke = draw.strokes.reduce((largest, stroke) =>
       stroke.area > largest.area ? stroke : largest,
     );
@@ -169,7 +210,7 @@ export class Race {
       GROUND_Y - draw.height / 2,
       [hull] as unknown as Matter.Vector[][],
       {
-        friction: 0.6,
+        friction: 0.6 * (perk?.friction ?? 1),
         frictionAir: 0.02,
         restitution: 0.15,
         density: 0.0018,
@@ -193,11 +234,12 @@ export class Race {
     World.add(this.engine.world, [body, flagAnchor, flagConstraint]);
 
     const racer: Racer = {
+      perk, sticker: selected?.code,
       grounded: true, lastGroundedAt: 0, lastCheerAt: 0, legPhase: 0,
       body,
       flagAnchor,
       flagConstraint,
-      flagText: flag.text.trim().split(/\s+/)[0].slice(0, 3).toUpperCase(),
+      flagText: (selected?.code ?? flag.text.trim().split(/\s+/)[0]).slice(0, 4).toUpperCase(),
       flagColor: flag.color,
       kind: "player",
       label: name,
@@ -252,7 +294,8 @@ export class Race {
 
   private cheerRacer(racer: Racer) {
     const now = performance.now();
-    if (now - (racer.lastCheerAt ?? 0) < 110) return; // rhythm, not mash-and-hold
+    if (!this.running) return;
+    if (now - (racer.lastCheerAt ?? -Infinity) < 110 * (racer.perk?.cooldown ?? 1)) return;
     racer.lastCheerAt = now;
     const body = racer.body;
     if (!body || racer.finished) return;
@@ -260,10 +303,11 @@ export class Race {
     const coyoteMs = 90; // margen para que el toque no se sienta injusto al despegar
     const canJump = racer.grounded || performance.now() - (racer.lastGroundedAt ?? 0) < coyoteMs;
 
-    const boostX = 3.4 + Math.random() * 1.4;
+    const boostX = (3.4 + Math.random() * 1.4) * (!racer.cheered ? racer.perk?.firstBoost ?? 1 : 1);
+    racer.cheered = true;
     const MAX_VX = 15;
     if (canJump) {
-      const boostY = -2.6 - Math.random() * 1.0;
+      const boostY = (-2.6 - Math.random() * 1.0) * (racer.perk?.jump ?? 1);
       Body.setVelocity(body, {
         x: Math.min(MAX_VX, body.velocity.x + boostX),
         y: body.velocity.y + boostY,
@@ -283,7 +327,7 @@ export class Race {
     this.running = true;
     this.startTime = performance.now();
     this.lastSample = 0;
-    for (const r of this.racers) r.legPhase = 0;
+    for (const r of this.racers) { r.legPhase = 0; r.lastCheerAt = -Infinity; r.cheered = false; }
     const loop = () => {
       if (!this.running) return;
       const elapsed = performance.now() - this.startTime;
@@ -297,11 +341,22 @@ export class Race {
           // A damped spring keeps the hull upright while allowing a running lean.
           const targetAngle = Math.min(1, Math.max(0, body.velocity.x) / 10) * 0.2;
           const angleError = targetAngle - body.angle;
-          const correctiveTorque = angleError * UPRIGHT_STIFFNESS - body.angularVelocity * UPRIGHT_DAMPING;
+          const correctiveTorque = angleError * UPRIGHT_STIFFNESS * (r.perk?.upright ?? 1) - body.angularVelocity * UPRIGHT_DAMPING;
           Body.setAngularVelocity(body, body.angularVelocity + correctiveTorque);
         }
       }
       Engine.update(this.engine, PHYSICS_STEP_MS);
+      // Scale horizontal travel once per step, without compounding velocity or affecting jumps.
+      // Translate preserves Matter's baseline velocity and existing impulse limits.
+      for (const r of this.racers) {
+        if (!r.body || r.finished) continue;
+        const speed = (r.perk?.speed ?? 1) * (elapsed <= 1000 ? r.perk?.launchSpeed ?? 1 : 1);
+        if (speed !== 1 && r.body.velocity.x > 0) {
+          const travel = { x: r.body.velocity.x * (speed - 1), y: 0 };
+          Body.translate(r.body, travel);
+          if (r.flagAnchor) Body.translate(r.flagAnchor, travel);
+        }
+      }
       const sample = elapsed - this.lastSample >= SAMPLE_MS;
       for (const r of this.racers) {
         const body = r.body;
@@ -317,7 +372,11 @@ export class Race {
         if (body) {
           // Follow the existing physics step so gait stays tied to body travel,
           // including on high-refresh displays or after a background-tab pause.
-          const speed = Math.max(0, Math.abs(body.velocity.x) - 0.1);
+          let speed = Math.max(0, Math.abs(body.velocity.x) - 0.1);
+          if (r.perk?.gaitSmoothing) {
+            r.gaitSpeed = (r.gaitSpeed ?? speed) + (speed - (r.gaitSpeed ?? speed)) * r.perk.gaitSmoothing;
+            speed = r.gaitSpeed;
+          }
           r.legPhase = (r.legPhase! + speed * (PHYSICS_STEP_MS / 1000) * LEG_CADENCE) % (Math.PI * 2);
           const px = body.position.x - START_X;
           if (sample) {
@@ -350,7 +409,7 @@ export class Race {
       this.render(elapsed);
       if (this.eventMode && (this.racers.every(r => r.finished) || elapsed >= 60000)) {
         this.stop();
-        this.cb.onAllFinish?.(this.racers.map(r => ({ name: r.label,
+        this.cb.onAllFinish?.(this.racers.map(r => ({ name: r.label, sticker: r.sticker,
           timeMs: r.finishTimeMs, distance: r.body!.position.x - START_X }))
           .sort((a, b) => (a.timeMs ?? Infinity) - (b.timeMs ?? Infinity) || b.distance - a.distance));
         return;
@@ -387,6 +446,7 @@ export class Race {
     backdrop.addColorStop(1, "#cee1c6");
     ctx.fillStyle = backdrop;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    this.drawSpectators(elapsed);
     ctx.beginPath();
     ctx.moveTo(near.screenX - halfWidth, near.screenY);
     ctx.lineTo(far.screenX - halfWidth * far.scale, far.screenY);
@@ -465,6 +525,40 @@ export class Race {
         ctx.textAlign = "center";
         ctx.fillText(r.label, p.screenX, p.screenY + 24, laneWidth * p.scale * 0.95);
       }
+    }
+  }
+
+  private drawSpectators(elapsed: number) {
+    const { ctx, canvas } = this;
+    for (const person of this.spectators) {
+      const scale = 1 - person.depth * 0.6;
+      const y = canvas.height * (0.91 - person.depth * 0.69);
+      const edge = canvas.width * (0.5 + person.side * 0.46 * scale);
+      const size = Math.min(canvas.width / 900, canvas.height / 460) * scale * person.size;
+      const x = edge + person.side * 29 * size;
+      const bounce = Math.sin(elapsed * 0.005 + person.phase);
+      ctx.save(); ctx.translate(x, y); ctx.scale(size, size);
+      ctx.fillStyle = '#b5aa94'; ctx.fillRect(-22, 0, 44, 7);
+      ctx.translate(0, -2 - bounce * 2); ctx.rotate(bounce * 0.045);
+      ctx.strokeStyle = '#12151a'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-5, -10); ctx.lineTo(-7, 0);
+      ctx.moveTo(5, -10); ctx.lineTo(7, 0);
+      ctx.moveTo(-8, -29); ctx.lineTo(-16, person.raised ? -40 : -16);
+      ctx.moveTo(8, -29); ctx.lineTo(16, person.raised ? -41 : -17); ctx.stroke();
+      ctx.fillStyle = person.color;
+      ctx.beginPath(); ctx.moveTo(-7, -32); ctx.lineTo(7, -32);
+      ctx.lineTo(10, -10); ctx.lineTo(-10, -10); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = person.skin;
+      ctx.beginPath(); ctx.ellipse(0, -40, 7, 8, 0, 0, Math.PI * 2); ctx.fill();
+      if (person.flag) {
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(16, -18); ctx.lineTo(16, -68); ctx.stroke();
+        ctx.fillStyle = person.color; ctx.fillRect(16, -68, 31, 15);
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(person.flag, 31.5, -57, 29);
+      }
+      ctx.restore();
     }
   }
 
