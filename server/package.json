@@ -1,9 +1,0 @@
-{
-  "name": "connector-day-race-event-server",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "express": "^5.1.0",
-    "ws": "^8.18.3"
-  }
-}

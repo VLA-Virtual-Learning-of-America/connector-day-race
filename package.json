@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "start": "node server/index.js",
     "event": "node server/index.js",
     "test:event": "node --test tests/event.test.mjs"
   },
@@ -16,6 +17,8 @@
     "vite": "^8.3.0"
   },
   "dependencies": {
-    "matter-js": "^0.20.0"
+    "matter-js": "^0.20.0",
+    "express": "^5.1.0",
+    "ws": "^8.18.3"
   }
 }
