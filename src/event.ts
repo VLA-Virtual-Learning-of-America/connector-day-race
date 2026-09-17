@@ -12,6 +12,7 @@ export async function mountHost() {
     <p id="event-status" role="status">Conectando con la sala…</p>
     <div id="lobby">
       <div class="join-instructions"><strong class="room-code">SALA 1</strong>
+        <img id="join-qr" alt="Código QR para unirse" hidden />
         <div><p id="join-instructions-text">Escaneá o entrá al link y dibujá tu corredor</p>
         <select id="join-network" aria-label="Dirección de la red local" hidden></select>
         <p><a id="join-link"></a></p></div></div>
@@ -146,7 +147,12 @@ export async function mountHost() {
       const link = document.getElementById('join-link') as HTMLAnchorElement;
       link.href = select.value;
       link.textContent = select.value;
-
+      // QR generado del lado del servidor (api.qrserver.com, gratis, sin dependencias nuevas
+      // del lado del cliente): si el venue no tiene salida a ese servicio, el link de texto
+      // de abajo sigue funcionando igual.
+      const qr = document.getElementById('join-qr') as HTMLImageElement;
+      qr.src = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(select.value)}`;
+      qr.hidden = false;
     }
     select.onchange = () => { void updateLink(); };
     await updateLink();

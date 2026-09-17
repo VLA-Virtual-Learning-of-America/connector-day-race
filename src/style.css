@@ -226,6 +226,7 @@ body.event-mode { overflow: auto; touch-action: auto; }
 .event-mode #app { min-height: 100%; height: auto; }
 .event-mode .screen { min-height: 100vh; }
 .join-instructions { display: flex; align-items: center; justify-content: center; gap: 24px; flex-wrap: wrap; }
+#join-qr { width: 180px; height: 180px; border: 3px solid var(--vla-ink); border-radius: 12px; background: white; padding: 6px; box-shadow: 4px 4px 0 var(--vla-ink); }
 #join-link { font-size: clamp(16px, 2.3vw, 30px); overflow-wrap: anywhere; }
 #join-network { max-width: 85vw; }
 #entrants { padding: 0; list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; }
