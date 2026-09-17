@@ -5,6 +5,14 @@ import { snapSelfie } from "./camera";
 import { generateCaption } from "./ai";
 import { bestGhost, leaderboardTop, saveGhost, type GhostRun } from "./storage";
 
+const params = new URLSearchParams(location.search);
+if (params.get("host") === "1") {
+  import("./event").then(({ mountHost }) => mountHost());
+} else {
+  mountDrawing(params.get("join") === "1");
+}
+
+function mountDrawing(joinMode: boolean) {
 const COURSE_NAME = "AI Builders";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -125,9 +133,30 @@ document.getElementById("btn-done")!.addEventListener("click", () => {
 
 let race: Race | null = null;
 
-document.getElementById("btn-race")!.addEventListener("click", () => {
+document.getElementById("btn-race")!.addEventListener("click", async () => {
   if (!currentDraw) return;
   racerName = (document.getElementById("input-name") as HTMLInputElement).value.trim() || "Sin nombre";
+  if (joinMode) {
+    const button = document.getElementById("btn-race") as HTMLButtonElement;
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/join", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: racerName, strokes: currentDraw.strokes.map(({ points, color }) => ({ points, color })) }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      show("name");
+      screens.name.replaceChildren();
+      const title = document.createElement("h1");
+      title.textContent = "Ya sos parte de la carrera — mirá la pantalla grande";
+      screens.name.append(title);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "No se pudo enviar. Revisá la conexión e intentá otra vez.");
+      button.disabled = false;
+    }
+    return;
+  }
   document.getElementById("hud-name")!.textContent = racerName;
   show("race");
 
@@ -220,3 +249,10 @@ document.getElementById("btn-again")!.addEventListener("click", () => {
 });
 
 void FINISH_X;
+
+if (joinMode) {
+  document.body.classList.add("event-mode");
+  document.getElementById("btn-race")!.textContent = "Sumarme a la carrera";
+  show("draw");
+}
+}

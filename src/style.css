@@ -220,3 +220,17 @@ input[type="text"], input[type="tel"] {
   border-radius: 999px;
   letter-spacing: 0.05em;
 }
+
+/* Event screens can scroll on small phones; standalone layout stays unchanged. */
+body.event-mode { overflow: auto; touch-action: auto; }
+.event-mode #app { min-height: 100%; height: auto; }
+.event-mode .screen { min-height: 100vh; }
+.join-instructions { display: flex; align-items: center; justify-content: center; gap: 24px; flex-wrap: wrap; }
+#join-link { font-size: clamp(16px, 2.3vw, 30px); overflow-wrap: anywhere; }
+#join-network { max-width: 85vw; }
+#entrants { padding: 0; list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; }
+#entrants li { display: flex; flex-direction: column; align-items: center; max-width: 160px; overflow-wrap: anywhere; }
+#entrants canvas { width: 120px; height: 90px; object-fit: contain; }
+#event-race { width: min(96vw, 1280px); max-height: 78vh; object-fit: contain; }
+#event-results { text-align: left; font-size: clamp(18px, 3vw, 32px); }
+#event-results li { padding: 8px; }

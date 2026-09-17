@@ -1,6 +1,6 @@
 type Point = { x: number; y: number };
 const DEFAULT_COLOR = "#12151a";
-type Stroke = { points: Point[]; color: string };
+export type Stroke = { points: Point[]; color: string };
 
 export interface DrawStroke {
   color: string;
@@ -164,48 +164,62 @@ export class DrawPad {
   }
 
   extract(): DrawResult {
-    const allPoints = this.strokes.flatMap((stroke) => stroke.points);
-    if (!allPoints.length) throw new Error("Cannot extract an empty drawing");
-    const box = bounds(allPoints);
-    const minX = Math.floor(box.minX) - 10;
-    const minY = Math.floor(box.minY) - 10;
-    const width = Math.max(40, Math.ceil(box.maxX) + 10 - minX);
-    const height = Math.max(40, Math.ceil(box.maxY) + 10 - minY);
-
-    const sprite = document.createElement("canvas");
-    sprite.width = width;
-    sprite.height = height;
-    const sctx = sprite.getContext("2d")!;
-    sctx.drawImage(this.canvas, minX, minY, width, height, 0, 0, width, height);
-
-    const points = allPoints.map((p) => ({ x: p.x - minX, y: p.y - minY }));
-    // Match addPlayer's largest bounding-box area selection, including ties.
-    const bodyStroke = this.strokes.reduce((largest, stroke) => {
-      const a = bounds(largest.points), b = bounds(stroke.points);
-      return (b.maxX - b.minX) * (b.maxY - b.minY) >
-        (a.maxX - a.minX) * (a.maxY - a.minY) ? stroke : largest;
-    });
-    const first = bodyStroke.points[0], last = bodyStroke.points[bodyStroke.points.length - 1];
-    const closeBody = Math.hypot(first.x - last.x, first.y - last.y) > 14;
-    // Also close the combined sprite; never modify the hull input points.
-    if (closeBody) paintStroke(sctx, [last, first], bodyStroke.color, minX, minY);
-    const strokes = this.strokes.map((stroke): DrawStroke => {
-      const b = bounds(stroke.points);
-      const x = Math.floor(b.minX) - 10;
-      const y = Math.floor(b.minY) - 10;
-      const crop = document.createElement("canvas");
-      crop.width = Math.ceil(b.maxX) + 10 - x;
-      crop.height = Math.ceil(b.maxY) + 10 - y;
-      // Repaint in isolation: copying from the pad would include intersecting strokes.
-      paintStroke(crop.getContext("2d")!, stroke.points, stroke.color, x, y, stroke === bodyStroke && closeBody);
-      return {
-        color: stroke.color,
-        points: stroke.points.map((p) => ({ x: p.x - minX, y: p.y - minY })),
-        sprite: crop, x: x - minX, y: y - minY,
-        width: crop.width, height: crop.height,
-        area: (b.maxX - b.minX) * (b.maxY - b.minY),
-      };
-    });
-    return { points, sprite, width, height, strokes };
+    return extractDrawing(this.strokes, this.canvas);
   }
+}
+
+export function restoreDrawing(strokes: Stroke[]): DrawResult {
+  const canvas = document.createElement("canvas");
+  const box = bounds(strokes.flatMap(s => s.points));
+  canvas.width = Math.ceil(box.maxX) + 20;
+  canvas.height = Math.ceil(box.maxY) + 20;
+  const ctx = canvas.getContext("2d")!;
+  for (const stroke of strokes) paintStroke(ctx, stroke.points, stroke.color);
+  return extractDrawing(strokes, canvas);
+}
+
+function extractDrawing(strokes: Stroke[], canvas: HTMLCanvasElement): DrawResult {
+  const allPoints = strokes.flatMap((stroke) => stroke.points);
+  if (!allPoints.length) throw new Error("Cannot extract an empty drawing");
+  const box = bounds(allPoints);
+  const minX = Math.floor(box.minX) - 10;
+  const minY = Math.floor(box.minY) - 10;
+  const width = Math.max(40, Math.ceil(box.maxX) + 10 - minX);
+  const height = Math.max(40, Math.ceil(box.maxY) + 10 - minY);
+
+  const sprite = document.createElement("canvas");
+  sprite.width = width;
+  sprite.height = height;
+  const sctx = sprite.getContext("2d")!;
+  sctx.drawImage(canvas, minX, minY, width, height, 0, 0, width, height);
+
+  const points = allPoints.map((p) => ({ x: p.x - minX, y: p.y - minY }));
+  // Match addPlayer's largest bounding-box area selection, including ties.
+  const bodyStroke = strokes.reduce((largest, stroke) => {
+    const a = bounds(largest.points), b = bounds(stroke.points);
+    return (b.maxX - b.minX) * (b.maxY - b.minY) >
+      (a.maxX - a.minX) * (a.maxY - a.minY) ? stroke : largest;
+  });
+  const first = bodyStroke.points[0], last = bodyStroke.points[bodyStroke.points.length - 1];
+  const closeBody = Math.hypot(first.x - last.x, first.y - last.y) > 14;
+  // Also close the combined sprite; never modify the hull input points.
+  if (closeBody) paintStroke(sctx, [last, first], bodyStroke.color, minX, minY);
+  const extractedStrokes = strokes.map((stroke): DrawStroke => {
+    const b = bounds(stroke.points);
+    const x = Math.floor(b.minX) - 10;
+    const y = Math.floor(b.minY) - 10;
+    const crop = document.createElement("canvas");
+    crop.width = Math.ceil(b.maxX) + 10 - x;
+    crop.height = Math.ceil(b.maxY) + 10 - y;
+    // Repaint in isolation: copying from the pad would include intersecting strokes.
+    paintStroke(crop.getContext("2d")!, stroke.points, stroke.color, x, y, stroke === bodyStroke && closeBody);
+    return {
+      color: stroke.color,
+      points: stroke.points.map((p) => ({ x: p.x - minX, y: p.y - minY })),
+      sprite: crop, x: x - minX, y: y - minY,
+      width: crop.width, height: crop.height,
+      area: (b.maxX - b.minX) * (b.maxY - b.minY),
+    };
+  });
+  return { points, sprite, width, height, strokes: extractedStrokes };
 }

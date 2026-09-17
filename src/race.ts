@@ -19,12 +19,21 @@ export interface FlagOptions {
   color: string;
 }
 
+export interface EventResult { name: string; timeMs?: number; distance: number }
+
 export interface RaceCallbacks {
+  onAllFinish?: (results: EventResult[]) => void;
   onTick: (elapsedMs: number, playerX: number) => void;
   onFinish: (result: { timeMs: number; positions: number[] }) => void;
 }
 
 interface Racer {
+  grounded?: boolean;
+  lastGroundedAt?: number;
+  lastCheerAt?: number;
+  legPhase?: number;
+  cadence?: number;
+  nextCheerAt?: number;
   body: Matter.Body | null; // null for kinematic ghosts (no physics needed)
   flagAnchor?: Matter.Body;
   flagConstraint?: Matter.Constraint;
@@ -57,16 +66,13 @@ export class Race {
   private canvas: HTMLCanvasElement;
   private racers: Racer[] = [];
   private player!: Racer;
+  private eventMode = false;
   private startTime = 0;
   private lastSample = 0;
   private running = false;
   private cb: RaceCallbacks;
-  private lastCheerAt = 0;
   private rafId = 0;
   private ground: Matter.Body;
-  private grounded = true;
-  private lastGroundedAt = 0;
-  private legPhase = 0;
 
   constructor(canvas: HTMLCanvasElement, cb: RaceCallbacks) {
     this.canvas = canvas;
@@ -87,30 +93,45 @@ export class Race {
     // que la gravedad puede compensar entre toques, y la criatura sale disparada fuera de pantalla.
     Matter.Events.on(this.engine, "collisionStart", (event) => {
       for (const pair of event.pairs) {
-        if (this.isPlayerGroundPair(pair)) {
-          this.grounded = true;
-          this.lastGroundedAt = performance.now();
+        const racer = this.groundRacer(pair);
+        if (racer) {
+          racer.grounded = true;
+          racer.lastGroundedAt = performance.now();
         }
       }
     });
     Matter.Events.on(this.engine, "collisionEnd", (event) => {
       for (const pair of event.pairs) {
-        if (this.isPlayerGroundPair(pair)) this.grounded = false;
+        const racer = this.groundRacer(pair);
+        if (racer) racer.grounded = false;
       }
     });
   }
 
-  private isPlayerGroundPair(pair: Matter.Pair): boolean {
-    const playerBody = this.player?.body;
-    if (!playerBody) return false;
-    const { bodyA, bodyB } = pair;
-    return (
-      (bodyA === playerBody && bodyB === this.ground) ||
-      (bodyB === playerBody && bodyA === this.ground)
-    );
+  private groundRacer(pair: Matter.Pair) {
+    const a = pair.bodyA.parent, b = pair.bodyB.parent;
+    return this.racers.find(r => r.body &&
+      ((a === r.body && b === this.ground) || (b === r.body && a === this.ground)));
   }
 
   addPlayer(draw: DrawResult, flag: FlagOptions) {
+    this.player = this.createRacer(draw, "Vos", flag);
+  }
+
+  addEntrant(draw: DrawResult, name: string) {
+    this.eventMode = true;
+    const racer = this.createRacer(draw, name, { text: name, color: draw.strokes[0].color });
+    racer.cadence = 150 + Math.random() * 100;
+    racer.nextCheerAt = Math.random() * 250;
+    const category = 1 << this.racers.length;
+    for (const body of [racer.body!, racer.flagAnchor!]) {
+      body.collisionFilter.category = category;
+      body.collisionFilter.mask = 1 | category;
+    }
+    return racer;
+  }
+
+  private createRacer(draw: DrawResult, name: string, flag: FlagOptions): Racer {
     const bodyStroke = draw.strokes.reduce((largest, stroke) =>
       stroke.area > largest.area ? stroke : largest,
     );
@@ -171,14 +192,15 @@ export class Race {
 
     World.add(this.engine.world, [body, flagAnchor, flagConstraint]);
 
-    this.player = {
+    const racer: Racer = {
+      grounded: true, lastGroundedAt: 0, lastCheerAt: 0, legPhase: 0,
       body,
       flagAnchor,
       flagConstraint,
       flagText: flag.text.trim().split(/\s+/)[0].slice(0, 3).toUpperCase(),
       flagColor: flag.color,
       kind: "player",
-      label: "Vos",
+      label: name,
       color: "#ff5a36",
       sprite: bodyStroke.sprite,
       spriteW: draw.width,
@@ -189,7 +211,8 @@ export class Race {
       positions: [],
       finished: false,
     };
-    this.racers.push(this.player);
+    this.racers.push(racer);
+    return racer;
   }
 
   addGhost(run: GhostRun, color = "#9aa3ad") {
@@ -224,14 +247,18 @@ export class Race {
   }
 
   cheer() {
+    if (this.player) this.cheerRacer(this.player);
+  }
+
+  private cheerRacer(racer: Racer) {
     const now = performance.now();
-    if (now - this.lastCheerAt < 110) return; // rhythm, not mash-and-hold
-    this.lastCheerAt = now;
-    const body = this.player?.body;
-    if (!body || this.player.finished) return;
+    if (now - (racer.lastCheerAt ?? 0) < 110) return; // rhythm, not mash-and-hold
+    racer.lastCheerAt = now;
+    const body = racer.body;
+    if (!body || racer.finished) return;
 
     const coyoteMs = 90; // margen para que el toque no se sienta injusto al despegar
-    const canJump = this.grounded || performance.now() - this.lastGroundedAt < coyoteMs;
+    const canJump = racer.grounded || performance.now() - (racer.lastGroundedAt ?? 0) < coyoteMs;
 
     const boostX = 3.4 + Math.random() * 1.4;
     const MAX_VX = 15;
@@ -256,45 +283,60 @@ export class Race {
     this.running = true;
     this.startTime = performance.now();
     this.lastSample = 0;
-    this.legPhase = 0;
+    for (const r of this.racers) r.legPhase = 0;
     const loop = () => {
       if (!this.running) return;
-      const body = this.player.body;
-      if (body) {
-        // A damped spring keeps the hull upright while allowing a running lean.
-        const targetAngle = Math.min(1, Math.max(0, body.velocity.x) / 10) * 0.2;
-        const angleError = targetAngle - body.angle;
-        const correctiveTorque = angleError * UPRIGHT_STIFFNESS - body.angularVelocity * UPRIGHT_DAMPING;
-        Body.setAngularVelocity(body, body.angularVelocity + correctiveTorque);
+      const elapsed = performance.now() - this.startTime;
+      for (const r of this.racers) {
+        const body = r.body;
+        if (r.cadence && !r.finished && elapsed >= r.nextCheerAt!) {
+          this.cheerRacer(r);
+          r.nextCheerAt = elapsed + r.cadence * (0.8 + Math.random() * 0.4);
+        }
+        if (body) {
+          // A damped spring keeps the hull upright while allowing a running lean.
+          const targetAngle = Math.min(1, Math.max(0, body.velocity.x) / 10) * 0.2;
+          const angleError = targetAngle - body.angle;
+          const correctiveTorque = angleError * UPRIGHT_STIFFNESS - body.angularVelocity * UPRIGHT_DAMPING;
+          Body.setAngularVelocity(body, body.angularVelocity + correctiveTorque);
+        }
       }
       Engine.update(this.engine, PHYSICS_STEP_MS);
-      if (body && Math.abs(body.angle) > MAX_BODY_ANGLE) {
-        // Catch collision spikes after integration, before rendering. Keep inward
-        // rotation, but discard momentum that would push farther past the limit.
-        const limit = Math.sign(body.angle) * MAX_BODY_ANGLE;
-        const angularVelocity = body.angularVelocity;
-        Body.setAngle(body, limit);
-        if (angularVelocity * limit > 0) Body.setAngularVelocity(body, 0);
-      }
-      const elapsed = performance.now() - this.startTime;
+      const sample = elapsed - this.lastSample >= SAMPLE_MS;
+      for (const r of this.racers) {
+        const body = r.body;
+        if (body && Math.abs(body.angle) > MAX_BODY_ANGLE) {
+          // Catch collision spikes after integration, before rendering. Keep inward
+          // rotation, but discard momentum that would push farther past the limit.
+          const limit = Math.sign(body.angle) * MAX_BODY_ANGLE;
+          const angularVelocity = body.angularVelocity;
+          Body.setAngle(body, limit);
+          if (angularVelocity * limit > 0) Body.setAngularVelocity(body, 0);
+        }
 
-      if (this.player.body) {
-        // Follow the existing physics step so gait stays tied to body travel,
-        // including on high-refresh displays or after a background-tab pause.
-        const speed = Math.max(0, Math.abs(this.player.body.velocity.x) - 0.1);
-        this.legPhase = (this.legPhase + speed * (PHYSICS_STEP_MS / 1000) * LEG_CADENCE) % (Math.PI * 2);
-        const px = this.player.body.position.x - START_X;
-        if (elapsed - this.lastSample >= SAMPLE_MS) {
-          this.player.positions.push(Math.max(0, px));
-          this.lastSample = elapsed;
+        if (body) {
+          // Follow the existing physics step so gait stays tied to body travel,
+          // including on high-refresh displays or after a background-tab pause.
+          const speed = Math.max(0, Math.abs(body.velocity.x) - 0.1);
+          r.legPhase = (r.legPhase! + speed * (PHYSICS_STEP_MS / 1000) * LEG_CADENCE) % (Math.PI * 2);
+          const px = body.position.x - START_X;
+          if (sample) {
+            r.positions.push(Math.max(0, px));
+          }
+          if (!r.finished && body.position.x >= FINISH_X) {
+            r.finished = true;
+            r.finishTimeMs = elapsed;
+            if (!this.eventMode) this.cb.onFinish({ timeMs: elapsed, positions: r.positions });
+            else {
+              Body.setStatic(body, true);
+              if (r.flagAnchor) Body.setStatic(r.flagAnchor, true);
+            }
+          }
+          if (!this.eventMode) this.cb.onTick(elapsed, body.position.x);
         }
-        if (!this.player.finished && this.player.body.position.x >= FINISH_X) {
-          this.player.finished = true;
-          this.player.finishTimeMs = elapsed;
-          this.cb.onFinish({ timeMs: elapsed, positions: this.player.positions });
-        }
-        this.cb.onTick(elapsed, this.player.body.position.x);
       }
+      if (sample) this.lastSample = elapsed;
+      if (this.eventMode) this.cb.onTick(elapsed, 0);
 
       for (const r of this.racers) {
         if (r.kind === "player" || r.finished) continue;
@@ -306,7 +348,14 @@ export class Race {
       }
 
       this.render(elapsed);
-      this.rafId = requestAnimationFrame(loop);
+      if (this.eventMode && (this.racers.every(r => r.finished) || elapsed >= 60000)) {
+        this.stop();
+        this.cb.onAllFinish?.(this.racers.map(r => ({ name: r.label,
+          timeMs: r.finishTimeMs, distance: r.body!.position.x - START_X }))
+          .sort((a, b) => (a.timeMs ?? Infinity) - (b.timeMs ?? Infinity) || b.distance - a.distance));
+        return;
+      }
+      if (this.running) this.rafId = requestAnimationFrame(loop);
     };
     this.rafId = requestAnimationFrame(loop);
   }
@@ -393,6 +442,10 @@ export class Race {
       ctx.save();
       ctx.translate(p.screenX, p.screenY);
       ctx.scale(p.scale, p.scale);
+      if (this.eventMode) {
+        const fit = Math.min(1, laneWidth * 0.8 / Math.max(r.spriteW ?? 60, r.spriteH ?? 60));
+        ctx.scale(fit, fit);
+      }
       ctx.fillStyle = "rgba(18,21,26,0.18)";
       ctx.beginPath();
       ctx.ellipse(0, 3, r.kind === "player" ? Math.max(26, (r.spriteW ?? 60) * 0.42) : 30,
@@ -406,6 +459,12 @@ export class Race {
         this.drawGhost(0, -30, r.color, r.label, r.finishTimeMs ?? elapsed);
       }
       ctx.restore();
+      if (this.eventMode) {
+        ctx.fillStyle = "#12151a";
+        ctx.font = "bold 16px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(r.label, p.screenX, p.screenY + 24, laneWidth * p.scale * 0.95);
+      }
     }
   }
 
@@ -421,7 +480,7 @@ export class Race {
       if (r.legs?.length) {
         for (let i = 0; i < r.legs.length; i++) {
           const leg = r.legs[i];
-          const angle = Math.sin(this.legPhase + leg.phaseOffset) * 0.7 * stride;
+          const angle = Math.sin(r.legPhase! + leg.phaseOffset) * 0.7 * stride;
           ctx.save();
           ctx.translate(leg.pivotX, leg.pivotY);
           ctx.rotate(angle);
@@ -429,7 +488,7 @@ export class Race {
           ctx.restore();
         }
       } else {
-        this.drawLegs(r.spriteW, r.spriteH, this.legPhase, stride, "#12151a");
+        this.drawLegs(r.spriteW, r.spriteH, r.legPhase!, stride, "#12151a");
       }
     }
     ctx.restore();
@@ -463,7 +522,7 @@ export class Race {
     ctx.fillStyle = "#12151a";
     ctx.font = "bold 12px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(r.label, body.position.x, body.position.y - (r.spriteH ?? 60) / 2 - 12);
+    if (!this.eventMode) ctx.fillText(r.label, body.position.x, body.position.y - (r.spriteH ?? 60) / 2 - 12);
     ctx.textAlign = "left";
 
   }
