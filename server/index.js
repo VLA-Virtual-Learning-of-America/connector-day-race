@@ -15,6 +15,13 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 const addresses = () => Object.values(networkInterfaces()).flat()
   .filter(a => a && a.family === 'IPv4' && !a.internal).map(a => a.address);
+// Railway (y cualquier PaaS con dominio público) expone la app detrás de un proxy con
+// otro puerto/host: las IPs de red local del contenedor no sirven para que un celular
+// se conecte desde afuera. Si hay un dominio público configurado, es la única URL real.
+const PUBLIC_URL = process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null;
+const joinUrls = () => PUBLIC_URL
+  ? [`${PUBLIC_URL}/?join=1`]
+  : addresses().map(ip => `http://${ip}:${PORT}/?join=1`);
 function broadcast(message) {
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(message));
@@ -23,9 +30,7 @@ function broadcast(message) {
 const room = createRoom(AUTO_START, broadcast);
 
 app.use(express.json({ limit: '1mb' }));
-app.get('/api/info', (_req, res) => res.json({
-  joinUrls: addresses().map(ip => `http://${ip}:${PORT}/?join=1`),
-}));
+app.get('/api/info', (_req, res) => res.json({ joinUrls: joinUrls() }));
 app.post('/api/join', (req, res) => {
   const result = room.join(req.body ?? {});
   res.status(result.status).json(result.error ? { error: result.error } : { id: result.id });
@@ -50,7 +55,9 @@ app.use((error, _req, res, _next) => {
   res.status(error.status ?? 500).json({ error: 'No se pudo procesar el envío.' });
 });
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Anfitrión: http://localhost:${PORT}/?host=1`);
-  for (const ip of addresses()) console.log(`Celulares: http://${ip}:${PORT}/?join=1`);
-  console.log(`Misma red local. Máximo ${MAX_RACERS}; arranque automático: ${AUTO_START || 'desactivado'}.`);
+  console.log(`Anfitrión: ${PUBLIC_URL ?? `http://localhost:${PORT}`}/?host=1`);
+  for (const url of joinUrls()) console.log(`Celulares: ${url}`);
+  console.log(PUBLIC_URL
+    ? `Dominio público de Railway. Máximo ${MAX_RACERS}; arranque automático: ${AUTO_START || 'desactivado'}.`
+    : `Misma red local. Máximo ${MAX_RACERS}; arranque automático: ${AUTO_START || 'desactivado'}.`);
 });
