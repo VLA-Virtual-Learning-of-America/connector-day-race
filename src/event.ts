@@ -12,8 +12,8 @@ export async function mountHost() {
     <p id="event-status" role="status">Conectando con la sala…</p>
     <div id="lobby">
       <div class="join-instructions"><strong class="room-code">SALA 1</strong>
-        <div><p>Conectate a la misma WiFi y dibujá tu corredor</p>
-        <select id="join-network" aria-label="Dirección de la red local"></select>
+        <div><p id="join-instructions-text">Escaneá o entrá al link y dibujá tu corredor</p>
+        <select id="join-network" aria-label="Dirección de la red local" hidden></select>
         <p><a id="join-link"></a></p></div></div>
       <ul id="entrants"></ul>
       <button id="start-now" class="primary" disabled>Empezar ya</button>
@@ -136,6 +136,12 @@ export async function mountHost() {
     for (const url of urls) select.add(new Option(url, url));
     const current = urls.find(url => new URL(url).hostname === location.hostname);
     if (current) select.value = current;
+    // Con un solo link (dominio público, o un solo adaptador de red) no hay nada que elegir.
+    select.hidden = urls.length <= 1;
+    const isPublicUrl = new URL(select.value || urls[0]).protocol === 'https:';
+    document.getElementById('join-instructions-text')!.textContent = isPublicUrl
+      ? 'Escaneá o entrá al link (funciona desde cualquier red) y dibujá tu corredor'
+      : 'Conectate a la misma WiFi, escaneá o entrá al link y dibujá tu corredor';
     async function updateLink() {
       const link = document.getElementById('join-link') as HTMLAnchorElement;
       link.href = select.value;
