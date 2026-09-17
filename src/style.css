@@ -244,5 +244,11 @@ body.event-mode { overflow: auto; touch-action: auto; }
 .sticker-option input { accent-color: var(--vla-accent); }
 .sticker-option strong { font-size: 20px; }
 .sticker-option small { font-size: 12px; }
+.sticker-visual { position: relative; display: grid; place-items: center; width: 112px; height: 72px; flex-shrink: 0; background: white; color: #12151a; border-radius: 8px; }
+.sticker-visual img { position: absolute; width: 96px; height: 64px; object-fit: contain; opacity: 0; }
+.sticker-visual.has-logo img { opacity: 1; }
+.sticker-visual.has-logo strong { visibility: hidden; }
+.sticker-option small, .sticker-option span { text-align: center; }
+#result-flag { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 16px; border-radius: 12px; text-align: center; }
 .sticker-option span { font-size: 12px; }
 @media (max-width: 580px) { .sticker-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

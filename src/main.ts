@@ -1,4 +1,5 @@
 import "./style.css";
+import { stickerVisual, stickerName, prepareStickerImages } from './sticker-visuals';
 import { DrawPad } from "./draw";
 import { Race, FINISH_X, STICKERS, stickerFor, type StickerCode } from "./race";
 import { snapSelfie } from "./camera";
@@ -61,7 +62,7 @@ app.innerHTML = `
       <label class="sticker-option"><input type="radio" name="sticker" value="" checked />
         <strong>Sin sticker</strong><small>A tu propio ritmo</small><span>Sin bonus de juego</span></label>
       ${STICKERS.map(s => `<label class="sticker-option"><input type="radio" name="sticker" value="${s.code}" />
-        <strong>${s.code}</strong><small>${s.name}</small><span>${s.description}</span></label>`).join('')}
+        ${stickerVisual(s.code)}<small>${stickerName(s.code)}</small><span>${s.description}</span></label>`).join('')}
     </fieldset>
     <div class="toolbar"><button id="btn-sticker-back">Volver</button>
       <button id="btn-sticker-go" class="primary">${joinMode ? 'Sumarme a la carrera' : 'A correr 🏁'}</button></div>
@@ -95,6 +96,8 @@ app.innerHTML = `
     <button id="btn-again" class="primary">Jugar de nuevo</button>
   </section>
 `;
+
+prepareStickerImages(app);
 
 const screens = {
   intro: document.getElementById("screen-intro")!,
@@ -226,7 +229,11 @@ async function onRaceFinished(timeMs: number, positions: number[]) {
   saveGhost(run);
 
   document.getElementById("result-name")!.textContent = racerName;
-  document.getElementById("result-flag")!.textContent = stickerFor(selectedSticker)?.name ?? "VLA · Sin sticker";
+  const resultFlag = document.getElementById("result-flag")!;
+  resultFlag.innerHTML = selectedSticker
+    ? `${stickerVisual(selectedSticker)}<span>${stickerName(selectedSticker)}</span>`
+    : 'VLA · Sin sticker';
+  prepareStickerImages(resultFlag);
   document.getElementById("result-time")!.textContent = `${(timeMs / 1000).toFixed(2)}s`;
   document.getElementById("ai-caption")!.textContent = "Generando comentario…";
   const photoPreview = document.getElementById("racer-photo-preview") as HTMLImageElement;
