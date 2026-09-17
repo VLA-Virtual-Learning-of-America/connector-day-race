@@ -10,6 +10,9 @@ const GROUND_Y = 420;
 const SAMPLE_MS = 50;
 const PHYSICS_STEP_MS = 1000 / 60;
 const LEG_CADENCE = 1.8; // radians per second per Matter horizontal velocity unit
+const UPRIGHT_STIFFNESS = 0.025; // tuned for the fixed 60 Hz physics step
+const UPRIGHT_DAMPING = 0.22;
+const MAX_BODY_ANGLE = 0.6;
 
 export interface FlagOptions {
   text: string; // e.g. "AI BUILDERS" or "VLA"
@@ -212,7 +215,23 @@ export class Race {
     this.legPhase = 0;
     const loop = () => {
       if (!this.running) return;
+      const body = this.player.body;
+      if (body) {
+        // A damped spring keeps the hull upright while allowing a running lean.
+        const targetAngle = Math.min(1, Math.max(0, body.velocity.x) / 10) * 0.2;
+        const angleError = targetAngle - body.angle;
+        const correctiveTorque = angleError * UPRIGHT_STIFFNESS - body.angularVelocity * UPRIGHT_DAMPING;
+        Body.setAngularVelocity(body, body.angularVelocity + correctiveTorque);
+      }
       Engine.update(this.engine, PHYSICS_STEP_MS);
+      if (body && Math.abs(body.angle) > MAX_BODY_ANGLE) {
+        // Catch collision spikes after integration, before rendering. Keep inward
+        // rotation, but discard momentum that would push farther past the limit.
+        const limit = Math.sign(body.angle) * MAX_BODY_ANGLE;
+        const angularVelocity = body.angularVelocity;
+        Body.setAngle(body, limit);
+        if (angularVelocity * limit > 0) Body.setAngularVelocity(body, 0);
+      }
       const elapsed = performance.now() - this.startTime;
 
       if (this.player.body) {
